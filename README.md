@@ -1,8 +1,4 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
+
 
 # ICU Extubation Outcomes: Does Provider Volume Predict Patient Survival?
 
