@@ -241,8 +241,7 @@ All p-values \< 0.001. Covariate balance plot:
 
 ## Tableau Dashboard
 
-The interactive dashboard is published at: **[Tableau Public link — add
-after publishing]**
+The interactive dashboard is published at: **[https://public.tableau.com/views/ExtubationsSimulated/Dashboard1-CohortOverview?:language=en-US&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link]**
 
 Three dashboards:
 
