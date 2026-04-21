@@ -171,6 +171,8 @@ cat("Variance explained k=8: ",
     round(km_8$betweenss  / km_8$totss,  3), "\n")
 cat("Variance explained k=10:", 
     round(km_10$betweenss / km_10$totss, 3), "\n")
+
+
 ## ── 4c. REVISED COVARIATE STRATEGY ───────────────────────────────────────────
 ##
 ##  Since clustering explains little variance, use two approaches:
@@ -196,6 +198,8 @@ cat("\nCCSR codes in >= 5% of patients:",
     sum(ccsr_prevalence$prevalence >= 0.05), "\n")
 cat("CCSR codes in >= 10% of patients:", 
     sum(ccsr_prevalence$prevalence >= 0.10), "\n")
+
+
 ## ── 5. BUILD ANALYSIS DATASET FOR PSM ────────────────────────────────────────
 
 # Get the 22 high-prevalence codes, drop RSP012 (near-universal, low variance)
