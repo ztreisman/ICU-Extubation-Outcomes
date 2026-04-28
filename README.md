@@ -50,6 +50,23 @@ a data quality artifact rather than a true caregiver performance effect.
 - Volume-weighted correlation between caregiver FE rate and patient survival
   at the caregiver level: r = −0.134, **p = 0.124** (not significant).
 
+**Mixed effects models:**
+- Mixed effects logistic regression (glmmTMB, frequentist; rstanarm, Bayesian)
+  with random intercepts for caregiver (520 groups) and ICU unit (13 groups)
+  confirms the null result with proper uncertainty quantification.
+- ICU unit random effect variance: 0.264 (glmmTMB); posterior mean 0.4,
+  95% CI (0.1, 1.2) (rstanarm) — unit-level factors explain meaningful
+  survival variation independently of patient severity.
+- Caregiver random effect variance: ~0 boundary estimate (glmmTMB); posterior
+  mean 0.0, 97.5% = 0.1 (rstanarm) — no residual caregiver-level variation
+  once unit and patient covariates are controlled.
+- `caregiver_fe_rate` fixed effect: coef −0.083, p = 0.832 (glmmTMB);
+  posterior mean 0.0, 95% CI (−0.1, 0.1) (rstanarm). Consistent null across
+  both frameworks.
+- Bayesian shrinkage: the rstanarm posterior provides honest uncertainty
+  quantification where glmmTMB hits the boundary of the parameter space,
+  confirming the null is not a numerical artifact.
+
 **Conclusion:** Caregiver FE rate as derivable from MIMIC-IV procedure events
 is not a reliable predictor of patient 12-month survival once data quality is
 adequately controlled. The apparent effect in the full dataset reflects inferred
@@ -86,8 +103,9 @@ counted equally, attenuating any caregiver effect on extubation-attributable
 mortality.
 
 **Unmeasured confounding:** PSM controls only for observed covariates. Shift
-patterns, time of day of extubation, ICU unit type, and attending physician
-supervision are not captured in MIMIC-IV.
+patterns, time of day of extubation, and attending physician supervision are
+not captured in MIMIC-IV. ICU unit is now included as a random effect in the
+mixed effects models (Section 10), partially addressing unit-level confounding.
 
 **External validity:** MIMIC-IV is a single-center dataset (Beth Israel
 Deaconess Medical Center). Provider-level metrics may not generalize.
@@ -190,7 +208,7 @@ visualization. It is not appropriate for clinical inference.
 | 0 | Libraries and setup |
 | 1 | Data ingestion (SQL output CSVs → R) |
 | 2 | Cohort construction: filtering, centering, `cleandata` / `supercleandata` |
-| 3 | Patient-level logistic regression for 12-month survival (three model variants) |
+| 3 | Patient-level logistic regression for 12-month survival: three GLM variants (logreg1–3) plus mixed effects models — frequentist (glmmTMB) and Bayesian (rstanarm::stan_glmer) — with random intercepts for caregiver and ICU unit |
 | 4 | Caregiver-level analysis: volume vs. FE rate, volume vs. survival, volume vs. hospital mortality |
 | 5 | Diagnosis case mix: LASSO on wide ICD chapter × caregiver matrix; ICD indicator construction |
 | 6 | Full interaction model (`logreg_icd`) with 5-fold cross-validation; classification metrics |
@@ -223,13 +241,15 @@ visualization. It is not appropriate for clinical inference.
 | IPW — full dataset | 0.789 | 0.735–0.846 | <0.001 | Driven by inferred event artifact |
 | PSM — explicit events only | 0.810 | 0.678–0.968 | 0.021 | Concentrated in low-volume caregivers |
 | Weighted correlation (explicit, caregiver-level) | r = −0.134 | — | 0.124 | **Not significant** |
+| glmmTMB — caregiver FE rate fixed effect | coef −0.083 | — | 0.832 | RE variance ~0 (boundary) |
+| rstanarm — caregiver FE rate posterior | mean 0.0 | −0.1 to 0.1 | — | **Not significant; Rhat = 1.0** |
 
 ---
 
 ## Tableau Dashboard
 
 The interactive dashboard is published at:
-**[Tableau Public link — add after publishing]**
+**[ICU Extubation Outcomes Dashboard](https://public.tableau.com/views/ExtubationsSimulated/Dashboard1-CohortOverview)**
 
 Three dashboards built on a synthetic cohort:
 
@@ -290,7 +310,7 @@ crosswalk for ICD-10-CM codes.
 
 **R:** `tidyverse`, `lubridate`, `splines`, `glmnet`, `randomForest`, `caret`,
 `MASS`, `MatchIt`, `cobalt`, `WeightIt`, `topicmodels`, `tidytext`, `Matrix`,
-`slam`, `weights`
+`slam`, `weights`, `glmmTMB`, `rstanarm`
 
 **SQL:** Google BigQuery with MIMIC-IV v3.1 access
 

@@ -37,6 +37,9 @@ library(splines)
 library(glmnet)
 library(randomForest)
 library(caret)
+library(glmmTMB)
+library(rstanarm)
+
 
 set.seed(237)
 
@@ -187,6 +190,52 @@ summary(logreg3)
 cleandata$logreg3_fitted <- logreg3$fitted.values
 round(exp(logreg3$coefficients), 3)
 
+
+# Model 1 (glmmTMB):
+meMod1 <- glmmTMB(survival_12mo ~ intubation_type +
+                    vent_hours_centered +
+                    charlson_centered +
+                    norepinephrine_centered +
+                    sofa_centered + caregiver_fe_rate +
+                    (1 | caregiver_id) + (1 | first_careunit), family=binomial, data=supercleandata)
+
+summary(meMod1)
+
+# Model 2 (rstanarm, weakly informative priors):
+#  stan_glmer — same formula, Bayesian posterior on random effect variances
+
+# Weakly informative priors — rstanarm defaults
+supercleandata_scaled <- supercleandata %>%
+  mutate(
+    charlson_scaled     = as.numeric(scale(charlson)),
+    sofa_scaled         = as.numeric(scale(sofa)),
+    norepinephrine_scaled = as.numeric(scale(norepinephrine)),
+    vent_hours_scaled   = as.numeric(scale(vent_hours)),
+    caregiver_fe_scaled = as.numeric(scale(caregiver_fe_rate))
+  )
+
+meMod2_bayes <- stan_glmer(
+  survival_12mo ~ intubation_type +
+    vent_hours_scaled +
+    charlson_scaled +
+    norepinephrine_scaled +
+    sofa_scaled +
+    caregiver_fe_scaled +
+    (1 | caregiver_id) +
+    (1 | first_careunit),
+  family  = binomial,
+  data    = supercleandata_scaled,
+  prior   = normal(0, 2.5),
+  prior_covariance = decov(scale = 1),
+  chains  = 4,
+  iter    = 2000,
+  seed    = 237
+)
+summary(meMod2_bayes, 
+        pars = c("caregiver_fe_scaled", 
+                 "Sigma[caregiver_id:(Intercept),(Intercept)]",
+                 "Sigma[first_careunit:(Intercept),(Intercept)]"),
+        probs = c(0.025, 0.975))
 
 ## ── 4. CAREGIVER-LEVEL ANALYSIS ──────────────────────────────────────────────
 ##
