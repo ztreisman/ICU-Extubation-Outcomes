@@ -26,25 +26,6 @@
 ##    - Computes caregiver_fe_rate, caregiver_n at query time
 ##    - Final filters: vent_hours in (1, 1000), norepinephrine < 1, failed_extubations < 10
 ##
-##  COMPANION SCRIPT: psm_analysis.R
-##
-##  A propensity score analysis extending the caregiver-level findings in
-##  Section 4 is implemented in psm_analysis.R. That script:
-##    - Constructs a patient × CCSR binary matrix from up to 10 diagnosis
-##      codes per patient (exported from BigQuery via a separate query)
-##    - Fits LDA topic models (K = 5, 8, 10, 12) and k-means clustering
-##      as alternative approaches to characterizing patient case mix
-##    - Defines PSM treatment as caregiver_fe_rate above the 75th percentile
-##      (≥ 0.32) vs. below the 25th percentile (≤ 0.12)
-##    - Matches 2,353 pairs on age, illness severity, intubation type, and
-##      21 high-prevalence CCSR diagnosis flags (caliper = 0.2 SD)
-##    - Estimates treatment effect on survival_12mo: OR = 0.733 (0.643–0.836)
-##    - Confirms robustness via IPW sensitivity analysis: OR = 0.789 (0.735–0.846)
-##
-##  Input files (not included in repository — require MIMIC-IV access):
-##    last_extubations_clean.csv   — main cohort export from BigQuery
-##    patient_ccsr_long.csv        — long-format CCSR codes per patient
-##
 ################################################################################
 
 
