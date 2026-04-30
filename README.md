@@ -280,7 +280,7 @@ Fully deterministic given `set.seed(237)`.
 
 ## Tableau Dashboard
 
-Published at: **[Tableau Public link — add after publishing]**
+Published at: **[ICU Extubation Outcomes Dashboard](https://public.tableau.com/app/profile/zachary.treisman/viz/ExtubationsSimulated/Dashboard1-CohortOverview)**
 
 Three interactive dashboards built on the synthetic cohort:
 
