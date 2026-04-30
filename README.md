@@ -18,7 +18,7 @@ after accounting for patient case mix, illness severity, and ICU unit?**
 
 A secondary question motivated by clinical intuition: is there an optimal
 FE rate range, where rates that are too low reflect overly conservative practice
-and rates that are too high reflect excessive aggressiveness?
+and rates that are too high reflect excessive readiness to extubate?
 
 ---
 
@@ -79,33 +79,22 @@ FE rate > 0, N = 111):
 
 ---
 
-## Data Quality Findings
+## Data Quality and Cohort Restriction
 
-A critical methodological contribution of this project is documenting how
-upstream data pipeline decisions propagate to substantive conclusions.
+MIMIC-IV extubation events are either explicitly documented procedure events
+or algorithmically inferred from ventilation segment boundaries. Caregiver
+identity is often missing or unreliable for inferred events, and imputation
+approaches tested so far have not produced reliable caregiver assignments for
+this subset.
 
-**Inferred event artifact:** MIMIC-IV extubation events can be either explicitly
-documented procedure events or algorithmically inferred from ventilation segment
-boundaries. Initial analyses including inferred events with imputed caregiver
-IDs showed a large apparent effect that partially reflected data quality
-artifacts:
-
-- 87.8% of patients assigned to high-FE-rate caregivers in the initial pipeline
-  had inferred (not explicitly documented) extubation events
-- The original caregiver imputation cascade had a self-referential bug in the
-  nearest-neighbor chartevents join (ordering by distance of charttime to
-  itself, always zero) causing arbitrary caregiver assignment
-- An overall FE rate fallback assigned the population mean to all patients
-  without a caregiver match, compressing the FE rate distribution to a spike
-
-After fixing these issues in the revised SQL pipeline:
-- Inferred events receive no caregiver ID imputation
-- The nearest-neighbor join is corrected
-- The overall mean fallback is removed
-- caregiver_fe_rate is NULL for patients without a genuine caregiver match
-
-The revised pipeline produces a clinically plausible FE rate distribution
-(median 4.3%, IQR 2.9–5.3%) and stronger, more credible effect estimates.
+As a result, the project operates on two cohorts: a broad descriptive cohort
+of 12,662 patients that characterizes the full population of ICU extubations,
+and an analytical cohort of 4,387 patients restricted to explicitly documented
+events with a genuine caregiver assignment. The analytical cohort is smaller
+but still large enough to support the mixed effects and PSM analyses, and
+the restriction produces a clinically plausible caregiver FE rate distribution
+(median 4.3%, IQR 2.9–5.3%). Improving caregiver assignment for inferred
+events remains an open methodological problem.
 
 ---
 
