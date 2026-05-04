@@ -7,11 +7,15 @@
 
 # MIMIC-derived data (cannot be shared)
 data/last_extubations*.csv
+data/all_extubations.csv
 data/patient_ccsr_long.csv
 data/psm_matched_dataset.csv
 data/psm_results_summary.csv
 data/tube_events.csv
 data/patient_timelines.csv
+data/cohorts.RData
+data/mixed_effects_models.RData
+data/psm_results.RData
 
 # Tableau files with embedded data
 *.twbx

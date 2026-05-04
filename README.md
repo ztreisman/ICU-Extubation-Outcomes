@@ -18,7 +18,7 @@ after accounting for patient case mix, illness severity, and ICU unit?**
 
 A secondary question motivated by clinical intuition: is there an optimal
 FE rate range, where rates that are too low reflect overly conservative practice
-and rates that are too high reflect excessive readiness to extubate?
+and rates that are too high reflect excessive aggressiveness?
 
 ---
 
@@ -65,17 +65,32 @@ patients):
 **Functional form** of the FE rate — survival relationship (caregivers with
 FE rate > 0, N = 111):
 
-- Quadratic model fits significantly better than linear:
-  F = 15.1, p = 0.0002, ΔAIC = 12.5
-- The parabola opens upward — the quadratic term describes **diminishing
-  marginal harm**, not a U-shaped optimum. The negative slope is steepest at
-  low FE rates and flattens at higher rates due to a survival floor in severely
-  ill patients.
-- Bootstrap vertex: mean 7.8%, 95% CI (6.0%, 10.1%) — this is a minimum of
-  the fitted curve, not a clinical target
+- Asymptotic exponential model: P(survival) = b + (1−b) × exp(−k × FE rate)
+- **b = 0.590 (95% CI 0.521–0.633)** — survival floor. Approximately 59% of
+  patients survive 12 months regardless of caregiver FE rate, representing
+  irreducible mortality driven by underlying illness severity.
+- **k = 47.2 (95% CI 31.2–71.0)** — decay rate. Most of the survival
+  difference occurs in the 0–8% FE rate range.
+- The remaining ~41% of patients represent outcomes potentially sensitive to
+  caregiver extubation practice — the upper bound on what quality improvement
+  could achieve in this population.
 - **There is no evidence of a sweet spot.** Survival decreases monotonically
-  with FE rate; the greatest survival benefit comes from reducing FE rates in
-  the lowest range.
+  with FE rate; the relationship is best described by diminishing marginal harm
+  rather than a U-shaped optimum.
+
+**Physiological trajectory analysis** using all explicit extubation events
+(6,063 events, 5,505 patients) with per-event reintubation within 72h as
+outcome:
+
+- RSBI and P/F ratio in the 72h before extubation do not predict per-event
+  extubation failure beyond the level at the moment of extubation
+- RSBI level at extubation: significant (p = 0.032), mean 52.3 (failed) vs
+  48.7 (succeeded)
+- RSBI slope 72h before extubation: not significant (p = 0.634)
+- P/F ratio level and slope: not significant (p = 0.505, p = 0.726)
+- The two groups are physiologically indistinguishable throughout the 72h
+  pre-extubation window — consistent with clinicians already conditioning on
+  a plateau criterion before extubating
 
 ---
 
@@ -103,19 +118,27 @@ events remains an open methodological problem.
 ```
 .
 ├── sql/
-│   └── ICU_Last_Extubations.sql        # BigQuery pipeline: MIMIC-IV → analysis dataset
+│   ├── ICU_Last_Extubations.sql        # BigQuery pipeline: MIMIC-IV → last extubation per patient
+│   └── all_extubations.sql             # BigQuery pipeline: all explicit extubation events
+│                                       #   with per-event failed_extubation_flag outcome
+│                                       #   and leave-one-out caregiver FE rate
 ├── r/
 │   ├── 00_run_all.R                    # Master script: sources 01, 02, 03 in order
 │   ├── 01_cohort_and_descriptive.R     # Cohort construction, Table 1, descriptive plots
 │   ├── 02_logistic_and_mixed_effects.R # glmmTMB and rstanarm mixed effects models
-│   ├── 03_psm_and_sensitivity.R        # PSM, IPW, partial correlation, functional form
+│   ├── 03_psm_and_sensitivity.R        # PSM, IPW, partial correlation, functional form,
+│   │                                   #   asymptotic exponential model (nls_fit)
+│   ├── 04_trajectory_analysis.R        # Per-event RSBI and P/F trajectory analysis
+│   │                                   #   requires bigrquery and BigQuery access
 │   └── generate_synthetic_extubation_data.R  # Synthetic cohort generator (Tableau)
 ├── data/
 │   ├── synthetic_last_extubations.csv  # 800-patient synthetic cohort (Tableau input)
 │   └── synthetic_caregiver_rate.csv    # 80-caregiver summary (Tableau input)
 ├── figures/
 │   ├── psm_love_plot.png               # Covariate balance before and after PSM
-│   └── fe_rate_survival_functional_form.png  # Linear vs quadratic vs exponential fits
+│   ├── fe_rate_survival_exponential.png # Asymptotic exponential fit with survival floor
+│   └── preextubation_trajectories_by_event_outcome.png  # RSBI and P/F ratio in 72h
+│                                                        #   before extubation by outcome
 ├── tableau/
 │   └── tableau_dashboard_spec.md       # Full build specification for Tableau dashboards
 └── README.md
@@ -172,10 +195,40 @@ score. Treatment defined as top vs bottom FE rate quartile (≥5.3% vs ≤2.9%).
 **Partial correlation:** ppcor package, caregiver-level (N = 134 caregivers
 with ≥5 sample patients), controlling for caregiver volume.
 
-**Functional form:** weighted linear, quadratic, and log-linear models at the
-caregiver level; bootstrap CI on quadratic vertex (2,000 resamples).
+**Functional form:** weighted asymptotic exponential model P(survival) = b +
+(1−b)×exp(−k×FE rate) at the caregiver level (nls_fit); bootstrap CI on
+parameters (2,000 resamples). Quadratic model retained for comparison.
 
 Saves `psm_results.RData` and two figures.
+
+### SQL: all_extubations.sql
+
+Produces one row per explicit extubation event (not just the last per patient)
+for trajectory analysis. Key differences from `ICU_Last_Extubations.sql`:
+
+- All explicit extubation events per patient, not just the last
+- `failed_extubation_flag`: 1 if this specific extubation was followed by
+  reintubation within 72h (both events explicit)
+- `caregiver_fe_rate_loo`: leave-one-out caregiver FE rate — computed from
+  all other events by this caregiver, avoiding circularity
+- No diagnosis joins — lean output for trajectory analysis
+
+Output: 6,063 events, 5,505 patients, 110 caregivers, 13 ICU units,
+overall FE rate 8.3%.
+
+### Script 04: Trajectory Analysis
+
+Pulls RSBI and P/F ratio measurements from BigQuery via `bigrquery` for all
+explicit extubation events, fits per-event slopes, and tests whether trajectory
+predicts failure beyond level. Requires active Google Cloud authentication.
+
+**RSBI:** 43,510 measurements across 5,046 events (median 6 per event).
+Slope p = 0.634; level p = 0.032.
+
+**P/F ratio:** 28,101 measurements across 5,327 events (median 4 per event).
+Slope p = 0.726; level p = 0.505.
+
+Produces `figures/preextubation_trajectories_by_event_outcome.png`.
 
 ---
 
@@ -207,8 +260,16 @@ patient (last extubation event). Key steps:
 5. `caregiver_imputation_source` column tracks which tier assigned each
    caregiver_id
 
-A separate CCSR long query unnests the `ccsr_codes` array into one row per
-patient per code (see header of `03_psm_and_sensitivity.R`).
+**Note on `failed_extubations`:** The `failed_extubations` column in the
+`last_extubations` output is a patient lifetime count of reintubation pairs
+across all extubation events during the hospital stay — not a flag for whether
+the last extubation specifically failed. It is a patient complexity marker.
+The per-event `failed_extubation_flag` (available in `all_extubations.sql`)
+is the correct variable for extubation outcome analyses.
+
+`all_extubations.sql` produces one row per explicit extubation event with
+`failed_extubation_flag` and a leave-one-out caregiver FE rate. See the SQL
+file header for details.
 
 ### Synthetic Cohort
 
@@ -259,7 +320,7 @@ Fully deterministic given `set.seed(237)`.
 
 **R:** `dplyr`, `tidyr`, `readr`, `tibble`, `ggplot2`, `lubridate`, `splines`,
 `tableone`, `glmmTMB`, `rstanarm`, `MatchIt`, `cobalt`, `WeightIt`, `ppcor`,
-`MASS`
+`MASS`, `bigrquery`, `patchwork`
 
 **SQL:** Google BigQuery with MIMIC-IV v3.1 access
 

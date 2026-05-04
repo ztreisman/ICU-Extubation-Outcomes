@@ -22,35 +22,27 @@
 ##      AND e.ccsr_codes IS NOT NULL
 ##    ORDER BY e.subject_id, code
 ##
-##  Research question:
-##    After matching patients of high-FE-rate caregivers to patients of
-##    low-FE-rate caregivers on illness severity and diagnosis case mix,
-##    does a survival difference persist?
-##
-##  Analytical approach:
-##    1. CCSR binary flags: 21 high-prevalence diagnosis codes as PSM covariates
-##       (LDA topic modeling and k-means clustering were explored but showed
-##       weak patient differentiation — median ~4 CCSR codes per patient
-##       produces short-document LDA failure; direct binary flags are more
-##       transparent and interpretable)
-##    2. PSM: nearest-neighbor 1:1 matching (method = "quick") within caliper
-##       0.2 SD on logit propensity score
-##    3. IPW: inverse probability weighting as sensitivity analysis
-##    4. Partial correlation: caregiver-level analysis controlling for volume
-##    5. Functional form: linear vs quadratic vs exponential models of
-##       FE rate — survival relationship at the caregiver level
+##  Research questions:
+##    1. After matching patients of high-FE-rate caregivers to patients of
+##       low-FE-rate caregivers on illness severity and diagnosis case mix,
+##       does a survival difference persist? (PSM / IPW)
+##    2. Is FE rate independently associated with survival at the caregiver
+##       level, controlling for volume? (partial correlation)
+##    3. What is the functional form of the FE rate — survival relationship,
+##       and is there an irreducible survival floor? (asymptotic exponential)
 ##
 ##  Key findings:
 ##    PSM (top vs bottom quartile FE rate):
-##      Unadjusted OR = 0.745 (0.629-0.882), p = 0.0006
-##      Doubly adjusted OR = 0.681 (0.558-0.830), p = 0.0001
-##    IPW: OR = 0.711 (0.630-0.802), p < 0.001
-##    Partial correlation (FE rate | caregiver volume): r = -0.366, p < 0.001
-##    Partial correlation (volume | FE rate): r = -0.122, p = 0.160
-##    Functional form: quadratic fits better than linear (F=15.1, p=0.0002);
-##      relationship is monotonically decreasing with diminishing slope —
-##      consistent with a survival floor at high illness severity,
-##      not a U-shaped optimum
+##      Unadjusted OR = 0.660 (0.553-0.787), p < 0.001
+##      Doubly adjusted OR = 0.571 (0.465-0.700), p < 0.001
+##    IPW: OR = 0.699 (0.616-0.792), p < 0.001
+##    Partial correlation (FE rate | caregiver volume): r = -0.363, p < 0.001
+##    Partial correlation (volume | FE rate): r = -0.121, p = 0.167
+##    Asymptotic exponential model:
+##      b (survival floor) = 0.590 (95% CI 0.521-0.633)
+##      k (decay rate)     = 47.2  (95% CI 31.2-71.0)
+##      ~59% of patients survive 12 months regardless of caregiver FE rate;
+##      ~41% represent outcomes potentially sensitive to caregiver performance
 ##
 ################################################################################
 
@@ -66,10 +58,10 @@ library(tibble)
 library(stringr)
 library(ggplot2)
 library(splines)
-library(MatchIt)     # propensity score matching
-library(cobalt)      # balance diagnostics and love plot
-library(WeightIt)    # IPW sensitivity analysis
-library(ppcor)       # partial correlation
+library(MatchIt)
+library(cobalt)
+library(WeightIt)
+library(ppcor)
 
 set.seed(237)
 
@@ -142,10 +134,6 @@ ccsr_flags <- ccsr_long %>%
 ##  Treatment: caregiver_fe_rate above 75th percentile ("high")
 ##             caregiver_fe_rate below 25th percentile ("low")
 ##  Middle 50% excluded to sharpen the contrast.
-##
-##  Quartiles (explicit_extubations):
-##    Q25 = 0.021 (2.1% FE rate)
-##    Q75 = 0.052 (5.2% FE rate)
 
 analysis_data <- explicit_extubations %>%
   left_join(ccsr_flags, by = "subject_id") %>%
@@ -214,15 +202,6 @@ psm_formula <- as.formula(paste(
 
 
 ## ── 4. PROPENSITY SCORE MATCHING ─────────────────────────────────────────────
-##
-##  Method: "quick" (faster than "nearest", equivalent results for large N)
-##  Ratio: 1:1
-##  Caliper: 0.2 SD of logit propensity score (standard recommendation)
-##  Distance: logit propensity score
-##
-##  Note: method = "nearest" caused R session crashes due to memory constraints
-##  with 570 caregivers and 21 CCSR flags. "quick" uses a faster algorithm
-##  with identical statistical properties.
 
 set.seed(237)
 match_out <- matchit(
@@ -237,7 +216,6 @@ match_out <- matchit(
 
 summary(match_out)
 
-## Love plot — covariate balance before and after matching
 p_love <- love.plot(
   match_out,
   threshold  = 0.1,
@@ -265,7 +243,6 @@ cat("Survival — low FE:",
     round(mean(matched_data$survival_12mo[matched_data$treated == 0],
                na.rm = TRUE), 3), "\n")
 
-## Unadjusted outcome model
 outcome_unadj <- glm(
   survival_12mo ~ treated,
   data    = matched_data,
@@ -280,7 +257,6 @@ cat("\nOR (unadjusted):", round(or_unadj, 3), "\n")
 cat("95% CI:", round(ci_unadj, 3), "\n")
 cat("p-value:", round(p_unadj, 4), "\n")
 
-## Doubly adjusted outcome model
 outcome_adj <- glm(
   survival_12mo ~ treated + anchor_age + charlson + sofa +
     norepinephrine + vent_hours + intub_surgical + intub_med_resp,
@@ -296,7 +272,6 @@ cat("\nOR (doubly adjusted):", round(or_adj, 3), "\n")
 cat("95% CI:", round(ci_adj, 3), "\n")
 cat("p-value:", round(p_adj, 4), "\n")
 
-## Effect modification by intubation type
 outcome_int <- glm(
   survival_12mo ~ treated * intub_med_resp,
   data    = matched_data,
@@ -336,19 +311,10 @@ cat("IPW p-value:", round(p_ipw, 4), "\n")
 
 
 ## ── 7. CAREGIVER-LEVEL PARTIAL CORRELATION ────────────────────────────────────
-##
-##  Unit of analysis: caregiver (N = 134, restricted to n > 5 sample patients)
-##  Tests whether FE rate predicts survival independently of caregiver volume,
-##  and vice versa.
-##
-##  Key finding: FE rate independently predicts survival controlling for volume
-##  (r = -0.366, p < 0.001); volume does not predict survival controlling for
-##  FE rate (r = -0.122, p = 0.160). FE rate is the signal; volume is not.
 
 cat("\n── Caregiver-level partial correlations ─────────────────────────────────\n")
 cat("N caregivers (n > 5 sample patients):", nrow(caregiver_summary), "\n")
 
-## Partial correlation: FE rate ~ survival, controlling for volume
 pcor_fe <- pcor.test(
   caregiver_summary$caregiver_fe_rate,
   caregiver_summary$survival_rate,
@@ -358,7 +324,6 @@ cat("\nPartial correlation: FE rate ~ survival | caregiver volume\n")
 cat("r =", round(pcor_fe$estimate, 3), "\n")
 cat("p =", round(pcor_fe$p.value,  4), "\n")
 
-## Partial correlation: volume ~ survival, controlling for FE rate
 pcor_vol <- pcor.test(
   caregiver_summary$caregiver_n,
   caregiver_summary$survival_rate,
@@ -370,75 +335,61 @@ cat("p =", round(pcor_vol$p.value,  4), "\n")
 cat("────────────────────────────────────────────────────────────────────────\n")
 
 
-## ── 8. FUNCTIONAL FORM ANALYSIS ──────────────────────────────────────────────
+## ── 8. FUNCTIONAL FORM: ASYMPTOTIC EXPONENTIAL MODEL ─────────────────────────
 ##
-##  Tests whether the FE rate — survival relationship is linear, quadratic,
-##  or exponential at the caregiver level.
+##  Model: P(survival) = b + (1 - b) * exp(-k * caregiver_fe_rate)
 ##
-##  Restricted to caregivers with FE rate > 0 (n = 112 of 134) to avoid
-##  small-sample zero-FE caregivers inflating the intercept.
+##    b: survival floor — fraction surviving regardless of caregiver FE rate,
+##       representing irreducible mortality driven by illness severity
+##    k: decay rate — steepness of survival reduction with increasing FE rate
 ##
-##  Finding: quadratic fits significantly better than linear (F = 15.1,
-##  p = 0.0002, ΔAIC = 12.5). The parabola opens upward (positive quadratic
-##  coefficient) with vertex at ~7.7% — but this is a minimum, not an optimum.
-##  The relationship is monotonically decreasing with diminishing slope:
-##  highest harm per unit FE rate at low FE rates, flattening at higher rates
-##  due to a survival floor in severely ill patients. This is consistent with
-##  an exponential decay model (log-linear fit also significant, p < 0.001).
-##  There is no evidence of a sweet spot where moderate FE rates produce
-##  better outcomes than low FE rates.
+##  Motivation: standard logistic and linear models imply every death is
+##  potentially preventable. This model explicitly partitions outcomes into
+##  a salvageable fraction (1 - b) that responds to caregiver performance,
+##  and an irreducible fraction (b) that does not. This is more clinically
+##  honest for a severely ill ICU population.
 ##
-##  Bootstrap 95% CI on vertex: 6.4% to 11.4% (1999/2000 bootstraps retained)
-##  — stable but describes a minimum, not an optimal target.
+##  Model selection: three-parameter version (with intercept shift c) fitted
+##  first; c was not significant (p = 0.558) and the two-parameter model had
+##  lower AIC (ΔAIC = 1.6). Two-parameter model preferred.
+##
+##  Restricted to caregivers with FE rate > 0 (N = 111 of 134).
 
-cat("\n── Functional form analysis (caregivers with FE rate > 0) ──────────────\n")
-cat("N caregivers:", nrow(caregivers_nonzero), "\n")
+cat("\n── Asymptotic exponential model ─────────────────────────────────────────\n")
+cat("N caregivers (FE rate > 0):", nrow(caregivers_nonzero), "\n")
 
-# Models fitted in Script 01 and loaded via cohorts.RData:
-#   lm_linear    — linear
-#   lm_quadratic — quadratic (best AIC)
-#   lm_log       — log(survival) ~ fe_rate (exponential)
+nls_fit <- nls(
+  survival_rate ~ b + (1 - b) * exp(-k * caregiver_fe_rate),
+  data    = caregivers_nonzero,
+  weights = n_patients_sample,
+  start   = list(b = 0.60, k = 50),
+  control = nls.control(maxiter = 500)
+)
 
-print(AIC(lm_linear, lm_quadratic))
-print(anova(lm_linear, lm_quadratic))
+summary(nls_fit)
 
-coefs  <- coef(lm_quadratic)
-vertex <- -coefs[2] / (2 * coefs[3])
-cat("Quadratic vertex (minimum, not optimum):", round(vertex, 3), "\n")
-cat("Quadratic coefficient sign:",
-    ifelse(coefs[3] > 0, "positive (parabola opens upward = minimum)", "negative"), "\n")
+b_hat <- coef(nls_fit)["b"]
+k_hat <- coef(nls_fit)["k"]
+b_ci  <- confint(nls_fit)["b", ]
+k_ci  <- confint(nls_fit)["k", ]
 
-## Bootstrap CI on vertex
-set.seed(237)
-n_boot   <- 2000
-vertices <- numeric(n_boot)
-for (i in seq_len(n_boot)) {
-  boot_idx  <- sample(nrow(caregivers_nonzero), replace = TRUE)
-  boot_data <- caregivers_nonzero[boot_idx, ]
-  boot_fit  <- lm(
-    survival_rate ~ caregiver_fe_rate + I(caregiver_fe_rate^2),
-    data    = boot_data,
-    weights = n_patients_sample
-  )
-  b          <- coef(boot_fit)
-  vertices[i] <- -b[2] / (2 * b[3])
-}
-vertices_clean <- vertices[vertices > 0 & vertices < 1]
-cat("\nBootstrap vertex CI (describes minimum, not optimum):\n")
-cat("Mean:", round(mean(vertices_clean), 3), "\n")
-cat("95% CI:", round(quantile(vertices_clean, 0.025), 3),
-    "to", round(quantile(vertices_clean, 0.975), 3), "\n")
-cat("Bootstraps retained:", length(vertices_clean), "of", n_boot, "\n")
+cat("\nb (survival floor):", round(b_hat, 3),
+    "  95% CI (", round(b_ci[1], 3), "-", round(b_ci[2], 3), ")\n")
+cat("k (decay rate):    ", round(k_hat, 1),
+    "  95% CI (", round(k_ci[1], 1), "-", round(k_ci[2], 1), ")\n")
 cat("────────────────────────────────────────────────────────────────────────\n")
 
-## Final visualization: FE rate vs survival with competing functional forms
-fe_seq  <- seq(0.001, max(caregivers_nonzero$caregiver_fe_rate), by = 0.001)
-pred_df <- data.frame(caregiver_fe_rate = fe_seq) %>%
-  mutate(
-    linear      = predict(lm_linear,    .),
-    quadratic   = predict(lm_quadratic, .),
-    exponential = exp(predict(lm_log,   .))
-  )
+## Compare with linear and quadratic
+cat("\nModel AIC comparison:\n")
+print(AIC(lm_linear, lm_quadratic))
+cat("NLS (asymptotic exponential) AIC:", round(AIC(nls_fit), 3), "\n")
+
+## Visualization
+fe_seq   <- seq(0, max(caregivers_nonzero$caregiver_fe_rate), by = 0.0005)
+pred_exp <- data.frame(
+  caregiver_fe_rate = fe_seq,
+  survival_rate     = b_hat + (1 - b_hat) * exp(-k_hat * fe_seq)
+)
 
 ggplot() +
   geom_point(
@@ -446,32 +397,44 @@ ggplot() +
     aes(caregiver_fe_rate, survival_rate, size = n_patients_sample),
     alpha = 0.5, color = "gray40"
   ) +
-  geom_line(data = pred_df,
-            aes(caregiver_fe_rate, linear),
-            color = "#2E75B6", linewidth = 0.8) +
-  geom_line(data = pred_df,
-            aes(caregiver_fe_rate, quadratic),
-            color = "#D95F02", linetype = "dashed", linewidth = 0.8) +
-  geom_line(data = pred_df,
-            aes(caregiver_fe_rate, exponential),
-            color = "#1D9E8E", linetype = "dotted", linewidth = 0.8) +
-  annotate("text", x = max(fe_seq) * 0.80, y = 0.93,
-           label = "Linear",      color = "#2E75B6", size = 3.5) +
-  annotate("text", x = max(fe_seq) * 0.80, y = 0.87,
-           label = "Quadratic",   color = "#D95F02", size = 3.5) +
-  annotate("text", x = max(fe_seq) * 0.80, y = 0.81,
-           label = "Exponential", color = "#1D9E8E", size = 3.5) +
+  geom_line(
+    data      = pred_exp,
+    aes(caregiver_fe_rate, survival_rate),
+    color     = "#2E75B6", linewidth = 1.0
+  ) +
+  geom_hline(
+    yintercept = b_hat,
+    linetype   = "dashed", color = "gray50"
+  ) +
+  annotate(
+    "text",
+    x     = max(caregivers_nonzero$caregiver_fe_rate) * 0.62,
+    y     = b_hat + 0.025,
+    label = paste0(
+      "Survival floor = ", round(b_hat, 3),
+      " (95% CI ", round(b_ci[1], 3), "\u2013", round(b_ci[2], 3), ")"
+    ),
+    color = "gray40", size = 3.5
+  ) +
+  scale_size_continuous(range = c(1, 8), name = "N patients") +
   labs(
     title    = "Caregiver FE Rate vs. 12-Month Patient Survival",
-    subtitle = "Caregivers with FE rate > 0. Quadratic fits best (ΔAIC = 12.5 vs linear).\nDiminishing slope reflects survival floor, not U-shaped optimum.",
+    subtitle = paste0(
+      "P(survival) = b + (1\u2212b)\u00d7exp(\u2212k\u00d7FE rate)     ",
+      "b = ", round(b_hat, 3),
+      " (95% CI ", round(b_ci[1], 3), "\u2013", round(b_ci[2], 3), ")     ",
+      "k = ", round(k_hat, 1),
+      " (95% CI ", round(k_ci[1], 1), "\u2013", round(k_ci[2], 1), ")"
+    ),
     x        = "Caregiver Failed Extubation Rate",
-    y        = "12-Month Patient Survival Rate",
-    size     = "N patients"
+    y        = "12-Month Patient Survival Rate"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.subtitle = element_text(size = 9))
 
-ggsave("../figures/fe_rate_survival_functional_form.png",
+ggsave("../figures/fe_rate_survival_exponential.png",
        width = 9, height = 6, dpi = 150)
+cat("Exponential model plot saved.\n")
 
 
 ## ── 9. RESULTS SUMMARY ───────────────────────────────────────────────────────
@@ -499,15 +462,20 @@ cat(sprintf("Partial r (FE rate | vol):  %.3f, p = %.4f\n",
 cat(sprintf("Partial r (volume | FE):    %.3f, p = %.4f\n",
             pcor_vol$estimate, pcor_vol$p.value))
 cat("\n")
-cat("Functional form: quadratic > linear (ΔAIC = 12.5, p = 0.0002)\n")
-cat("Interpretation:  diminishing marginal harm, not U-shaped optimum\n")
+cat(sprintf("Survival floor b:           %.3f (95%% CI %.3f-%.3f)\n",
+            b_hat, b_ci[1], b_ci[2]))
+cat(sprintf("Decay rate k:               %.1f  (95%% CI %.1f-%.1f)\n",
+            k_hat, k_ci[1], k_ci[2]))
+cat("Interpretation: ~59% survive regardless of caregiver FE rate;\n")
+cat("~41% represent outcomes potentially sensitive to caregiver performance.\n")
 cat("────────────────────────────────────────────────────────────────────────\n")
 
-## Save PSM objects for reporting
+## Save results
 save(match_out, matched_data, ipw_out,
      or_unadj, ci_unadj, p_unadj,
      or_adj, ci_adj, p_adj,
      or_ipw, ci_ipw, p_ipw,
      pcor_fe, pcor_vol,
+     nls_fit, b_hat, k_hat, b_ci, k_ci,
      file = "../data/psm_results.RData")
 cat("PSM results saved to ../data/psm_results.RData\n")
