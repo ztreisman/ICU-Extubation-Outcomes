@@ -22,6 +22,15 @@ data/psm_results.RData
 *.twb
 *.hyper
 
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Python pipeline outputs (figures and models are reproducible)
+python/figures/
+python/models/
+
 # OS artifacts
 .DS_Store
 Thumbs.db
