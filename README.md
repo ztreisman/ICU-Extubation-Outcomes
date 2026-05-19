@@ -78,6 +78,33 @@ FE rate > 0, N = 111):
   with FE rate; the relationship is best described by diminishing marginal harm
   rather than a U-shaped optimum.
 
+**Deep learning pipeline** (Python, `python/`) trained on the same 4,387-patient
+explicit cohort with the same features and random seed as the R pipeline:
+
+- Logistic regression: AUC-ROC 0.806, AUC-PR 0.935, Brier 0.141
+- Gradient boosting: AUC-ROC 0.828, AUC-PR 0.943, Brier 0.132
+- MLP with entity embeddings (PyTorch): AUC-ROC 0.841, AUC-PR 0.948, Brier 0.171
+
+Top SHAP features (mean |SHAP|): charlson (0.119), first_careunit (0.069),
+primary_diagnosis (0.042), sofa (0.038), anchor_age (0.035).
+caregiver_fe_rate ranks 10th — large predictive improvement from patient severity
+features, small independent contribution from caregiver, consistent with the R results.
+
+**Double/Debiased ML** (Chernozhukov et al. 2018) for the causal effect of
+caregiver_fe_rate on survival, using 5-fold cross-fitting with gradient boosting
+nuisance models:
+
+- θ̂ = −0.172 (change in P(survival) per unit of FE rate), SE = 0.311, p = 0.581
+- IQR survival difference (FE rate 2.9% → 5.3%): −0.4 pp
+- Approximate log-odds equivalent: −0.977 (vs. glmmTMB fixed effect −2.80, p = 0.097)
+- Treatment R² ~0.40–0.46: confounders explain ~40% of variation in FE rate; DML
+  uses the remaining unexplained variation as the identifying signal
+
+DML is more conservative than glmmTMB, likely because the flexible GBM nuisance
+model absorbs nonlinear confounding and because DML does not incorporate caregiver
+random effects. Both analyses point to the same conclusion: a plausible but weak
+and uncertain negative signal that survives neither frequentist threshold.
+
 **Physiological trajectory analysis** using all explicit extubation events
 (6,063 events, 5,505 patients) with per-event reintubation within 72h as
 outcome:
@@ -131,6 +158,17 @@ events remains an open methodological problem.
 │   ├── 04_trajectory_analysis.R        # Per-event RSBI and P/F trajectory analysis
 │   │                                   #   requires bigrquery and BigQuery access
 │   └── generate_synthetic_extubation_data.R  # Synthetic cohort generator (Tableau)
+├── python/
+│   ├── 00_run_all.py                   # Master script: runs 02 → 03 → 04 → 05
+│   ├── 02_baselines.py                 # Logistic regression and gradient boosting
+│   ├── 03_train_mlp.py                 # MLP with entity embeddings (PyTorch)
+│   ├── 04_shap_interpret.py            # SHAP feature importance (KernelExplainer)
+│   ├── 05_dml_caregiver_fe.py          # Double/Debiased ML causal estimate
+│   ├── config.py                       # Shared hyperparameters and paths
+│   ├── data_utils.py                   # Data loading, CCSR flags, feature encoding
+│   ├── model.py                        # MLPWithEmbeddings architecture
+│   ├── figures/                        # Output figures
+│   └── models/                         # Saved model checkpoints
 ├── data/
 │   ├── synthetic_last_extubations.csv  # 800-patient synthetic cohort (Tableau input)
 │   └── synthetic_caregiver_rate.csv    # 80-caregiver summary (Tableau input)
@@ -232,6 +270,62 @@ Produces `figures/preextubation_trajectories_by_event_outcome.png`.
 
 ---
 
+## Python Deep Learning Pipeline
+
+Runs on the same explicit cohort (N = 4,387) and uses the same random seed
+(237), CCSR threshold (≥10%), and cohort filters as the R pipeline to keep
+results directly comparable.
+
+### Scripts 02–03: Baseline and MLP Models
+
+**Script 02** fits logistic regression and gradient boosting classifiers using
+the same 8 continuous features, 4 categorical features, and 21 CCSR flags.
+Train/val/test split is 70/15/15% stratified on `survival_12mo`.
+
+**Script 03** trains an MLP with entity embeddings (PyTorch): categorical
+features (gender, intubation type, primary diagnosis, first careunit) are
+passed through learned embedding layers rather than one-hot encoded, allowing
+the model to capture similarity structure across categories. Architecture:
+three hidden layers (256 → 128 → 64), dropout 0.30, Adam optimizer with
+ReduceLROnPlateau scheduling and early stopping (patience = 20).
+
+### Script 04: SHAP Interpretability
+
+KernelExplainer on 200 held-out test patients with a 100-sample k-means
+background set. Produces summary, bar, and dependence plots for
+`caregiver_fe_rate`. Top feature by mean |SHAP|: charlson (0.119); first
+careunit (0.069) and primary diagnosis (0.042) together show the ICU unit
+and case-mix effects the R random effects model captures. caregiver_fe_rate
+ranks 10th (0.007) — quantitatively consistent with the glmmTMB finding that
+patient severity dominates.
+
+### Script 05: Double/Debiased ML
+
+5-fold cross-fit DML estimating the average partial effect of caregiver_fe_rate
+on P(12-month survival). Nuisance models: GradientBoostingClassifier for
+E[Y|W] and GradientBoostingRegressor for E[D|W], where W is all confounders
+excluding FE rate.
+
+Key diagnostics:
+- Outcome nuisance AUC per fold: 0.806–0.828 (nuisance model adequate)
+- Treatment nuisance R² per fold: 0.36–0.46 (substantial unexplained variation
+  in FE rate remains as the identifying signal)
+
+Result: θ̂ = −0.172, SE = 0.311, p = 0.581. IQR effect (FE rate 2.9% → 5.3%):
+−0.4 pp. The flexible nonparametric confounder model does not find a significant
+residual effect, consistent with the overall finding that the caregiver signal
+is real but small and sensitive to modeling assumptions.
+
+Run the full pipeline from the `python/` directory:
+
+```bash
+python 00_run_all.py                        # all steps
+python 00_run_all.py --skip-shap            # skip SHAP (~5 min)
+python 00_run_all.py --skip-shap --skip-dml # baselines + MLP only
+```
+
+---
+
 ## Data
 
 ### Source: MIMIC-IV v3.1
@@ -321,6 +415,9 @@ Fully deterministic given `set.seed(237)`.
 **R:** `dplyr`, `tidyr`, `readr`, `tibble`, `ggplot2`, `lubridate`, `splines`,
 `tableone`, `glmmTMB`, `rstanarm`, `MatchIt`, `cobalt`, `WeightIt`, `ppcor`,
 `MASS`, `bigrquery`, `patchwork`
+
+**Python:** `torch`, `numpy>=1.26,<2`, `pandas>=2.1`, `scikit-learn`, `scipy`,
+`shap`, `matplotlib`
 
 **SQL:** Google BigQuery with MIMIC-IV v3.1 access
 
