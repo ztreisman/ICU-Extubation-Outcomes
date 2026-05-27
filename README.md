@@ -116,13 +116,10 @@ FE rate > 0, N = 111):
 - The remaining ~38% of patients represent outcomes potentially sensitive to
   caregiver extubation practice — the upper bound on what quality improvement
   could achieve in this population.
-- **Sweet spot hypothesis rejected.** Within-group quartile analysis shows
+- **Sweet spot hypothesis unsupported.** Within-group quartile analysis shows
   Q1 (lowest FE rate) has the best outcomes in CVICU (90.9% vs 84.4% in Q4),
-  declining monotonically through Q3. The earlier apparent Q2 > Q1 pattern in
-  the cross-unit analysis was a CCU composition artifact: CCU caregivers
-  (near-zero unit FE rates, 43.3% survival) depressed Q1's cross-unit average.
-  The quadratic model significance (p = 0.037) reflects unit mix, not a genuine
-  optimum. Within CVICU, lower FE rate is better with no detectable floor.
+  declining monotonically through Q3. Within CVICU, lower FE rate is better with 
+  no detectable floor.
 
 **Deep learning pipeline** (Python, `python/`) trained on the same 4,387-patient
 explicit cohort with the same features and random seed as the R pipeline:
