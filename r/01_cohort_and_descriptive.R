@@ -60,7 +60,7 @@ library(tableone)   # Table 1 construction
 
 set.seed(237)
 
-# setwd("~/Projects/Extubate/r")   # adjust as needed
+setwd("D:/Projects/Extubate/ICU-Extubation-Outcomes/r")   # adjust as needed
 
 
 ## ── 1. DATA INGESTION ────────────────────────────────────────────────────────
@@ -79,10 +79,16 @@ last_extubations <- read_csv(
     caregiver_imputation_source = col_factor(),
     first_careunit              = col_factor(),
     event_time                  = col_datetime(),
-    dod                         = col_date()
+    dod                         = col_date(),
+    caregiver_unit_n            = col_double()
   )
 ) %>%
-  mutate(survival_12mo = is.na(dod))
+  mutate(
+    survival_12mo  = is.na(dod),
+    days_to_death  = as.numeric(as.Date(dod) - as.Date(event_time)),
+    died_30d       = as.integer(!is.na(dod) & days_to_death <= 30),
+    likely_comfort = hospital_expire_flag == 1 & !is.na(dod) & days_to_death <= 3
+  )
 
 cat("Raw rows from SQL:", nrow(last_extubations), "\n")
 cat("Unique patients:", n_distinct(last_extubations$subject_id), "\n")
@@ -112,14 +118,15 @@ cat("Failed extubation rate:", round(mean(patient_cohort$failed_extubations > 0,
 
 ## explicit_extubations: analytical cohort for caregiver-level analysis
 ##   - Explicit tube events only (directly documented procedure events)
-##   - Genuine caregiver assignment (caregiver_fe_rate not missing)
-##   - caregiver_n > 10: FE rate estimated from > 10 extubations
+##   - caregiver_n > 10: caregiver has > 10 total extubations (quality threshold)
+##   - !is.na(caregiver_unit_n): unit-specific FE rate is genuinely available
+##     (not a fallback to global rate from a cross-unit imputed assignment)
 ##   - Complete covariates for modeling
 
 explicit_extubations <- patient_cohort %>%
   filter(
     tube_event_source == "explicit",
-    !is.na(caregiver_fe_rate),
+    !is.na(caregiver_unit_n),
     caregiver_n > 10
   ) %>%
   mutate(
@@ -144,6 +151,10 @@ cat("Failed extubation rate:", round(mean(explicit_extubations$failed_extubation
 cat("Caregiver FE rate — median:", round(median(explicit_extubations$caregiver_fe_rate), 3),
     "IQR:", round(quantile(explicit_extubations$caregiver_fe_rate, 0.25), 3),
     "—", round(quantile(explicit_extubations$caregiver_fe_rate, 0.75), 3), "\n")
+cat("30-day mortality rate:", round(mean(explicit_extubations$died_30d, na.rm = TRUE), 3), "\n")
+cat("Likely comfort extubations (in-hosp death <= 3d from extubation):",
+    sum(explicit_extubations$likely_comfort),
+    sprintf("(%.1f%%)\n", mean(explicit_extubations$likely_comfort) * 100))
 
 
 ## ── 3. TABLE 1: PATIENT CHARACTERISTICS ──────────────────────────────────────
@@ -194,20 +205,30 @@ print(tab1b, showAllLevels = FALSE, smd = TRUE)
 
 ## ── 4. CAREGIVER-LEVEL DESCRIPTIVE ───────────────────────────────────────────
 ##
-##  One row per caregiver. Used for all caregiver-level visualizations
-##  and the partial correlation analysis in Script 03.
+##  One row per caregiver. primary_careunit: modal first_careunit among the
+##  caregiver's sample patients (most common unit, not just first observed).
+##  Used for all caregiver-level visualizations and partial correlation in
+##  Script 03.
+
+primary_careunit_map <- explicit_extubations %>%
+  count(caregiver_id, first_careunit) %>%
+  group_by(caregiver_id) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  select(caregiver_id, primary_careunit = first_careunit)
 
 caregiver_summary <- explicit_extubations %>%
   group_by(caregiver_id) %>%
   summarise(
-    caregiver_fe_rate  = mean(caregiver_fe_rate),
-    caregiver_n        = mean(caregiver_n),
+    caregiver_fe_rate  = first(caregiver_fe_rate),
+    caregiver_n        = first(caregiver_n),
     survival_rate      = mean(survival_12mo, na.rm = TRUE),
     hospital_expire    = mean(hospital_expire_flag, na.rm = TRUE),
+    died_30d_rate      = mean(died_30d, na.rm = TRUE),
     n_patients_sample  = n(),
-    first_careunit     = first(first_careunit),
     .groups            = "drop"
   ) %>%
+  left_join(primary_careunit_map, by = "caregiver_id") %>%
   filter(n_patients_sample > 5)
 
 cat("\nCaregivers with > 5 sample patients:", nrow(caregiver_summary), "\n")
@@ -215,6 +236,31 @@ cat("Caregiver FE rate range:",
     round(range(caregiver_summary$caregiver_fe_rate), 3), "\n")
 cat("Caregiver volume range:",
     round(range(caregiver_summary$caregiver_n)), "\n")
+
+
+## ── 4b. UNIT-LEVEL DESCRIPTIVE ────────────────────────────────────────────────
+##
+##  Per-unit breakdown of patient volume, caregiver FE rate, and survival.
+##  Used to assess unit heterogeneity and inform grouping decisions for
+##  the stratified analysis in Script 03.
+
+unit_summary <- explicit_extubations %>%
+  group_by(first_careunit) %>%
+  summarise(
+    n_patients        = n(),
+    n_caregivers      = n_distinct(caregiver_id),
+    mean_fe_rate      = mean(caregiver_fe_rate, na.rm = TRUE),
+    median_fe_rate    = median(caregiver_fe_rate, na.rm = TRUE),
+    survival_rate     = mean(survival_12mo, na.rm = TRUE),
+    mean_sofa         = mean(sofa, na.rm = TRUE),
+    mean_charlson     = mean(charlson, na.rm = TRUE),
+    .groups           = "drop"
+  ) %>%
+  arrange(mean_fe_rate)
+
+cat("\n── Unit-level summary (explicit cohort) ─────────────────────────────────\n")
+print(unit_summary, n = Inf)
+cat("────────────────────────────────────────────────────────────────────────\n")
 
 
 ## ── 5. POPULATION VISUALIZATIONS ─────────────────────────────────────────────
@@ -344,5 +390,6 @@ cat("─────────────────────────
 ## Save cohorts for Scripts 02 and 03
 save(patient_cohort, explicit_extubations, caregiver_summary,
      caregivers_nonzero, lm_linear, lm_quadratic, lm_log,
+     unit_summary,
      file = "../data/cohorts.RData")
 cat("Cohorts saved to ../data/cohorts.RData\n")

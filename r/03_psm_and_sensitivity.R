@@ -32,17 +32,22 @@
 ##       and is there an irreducible survival floor? (asymptotic exponential)
 ##
 ##  Key findings:
-##    PSM (top vs bottom quartile FE rate):
-##      Unadjusted OR = 0.660 (0.553-0.787), p < 0.001
-##      Doubly adjusted OR = 0.571 (0.465-0.700), p < 0.001
-##    IPW: OR = 0.699 (0.616-0.792), p < 0.001
-##    Partial correlation (FE rate | caregiver volume): r = -0.363, p < 0.001
-##    Partial correlation (volume | FE rate): r = -0.121, p = 0.167
-##    Asymptotic exponential model:
-##      b (survival floor) = 0.590 (95% CI 0.521-0.633)
-##      k (decay rate)     = 47.2  (95% CI 31.2-71.0)
-##      ~59% of patients survive 12 months regardless of caregiver FE rate;
-##      ~41% represent outcomes potentially sensitive to caregiver performance
+##    PSM (top vs bottom quartile, caregiver_unit_n >= 5, exact match within unit):
+##      Q25 = 0.7%, Q75 = 6.2%; matched N = 2036
+##      Unadjusted OR = 0.599 (0.497-0.720), p < 0.001
+##      Doubly adjusted OR = 0.646 (0.516-0.807), p < 0.001
+##      Effect modification (treated x medical-respiratory): p = 0.014
+##    IPW: OR = 0.757 (0.669-0.857), p < 0.001
+##    Partial correlation (FE rate | caregiver volume): r = -0.288, p < 0.001
+##    Partial correlation (volume | FE rate): r = -0.109, p = 0.211
+##    Unit-stratified partial correlation:
+##      CVICU (N = 73): r = -0.342, p = 0.003
+##      MICU  (N = 30): r = -0.298, p = 0.116 (directional, underpowered)
+##    Asymptotic exponential model (caregivers FE rate > 0, N = 78):
+##      b (survival floor) = 0.624 (95% CI 0.586-0.658)
+##      k (decay rate)     = 77.5  (95% CI 52.7-122.4)
+##      ~62% of patients survive 12 months regardless of caregiver FE rate;
+##      ~38% represent outcomes potentially sensitive to caregiver performance
 ##
 ################################################################################
 
@@ -70,7 +75,7 @@ set.seed(237)
 
 load("../data/cohorts.RData")
 # Loads: patient_cohort, explicit_extubations, caregiver_summary,
-#        caregivers_nonzero, lm_linear, lm_quadratic, lm_log
+#        caregivers_nonzero, lm_linear, lm_quadratic, lm_log, unit_summary
 
 ccsr_long <- read_csv(
   "../data/patient_ccsr_long.csv",
@@ -129,185 +134,264 @@ ccsr_flags <- ccsr_long %>%
   )
 
 
-## ── 3. PSM DATASET CONSTRUCTION ──────────────────────────────────────────────
+## ── 3. UNIT GROUPS AND WITHIN-GROUP QUARTILE SURVIVAL ─────────────────────────
 ##
-##  Treatment: caregiver_fe_rate above 75th percentile ("high")
-##             caregiver_fe_rate below 25th percentile ("low")
-##  Middle 50% excluded to sharpen the contrast.
+##  PSM-eligible groups (sufficient N for quartile comparison):
+##    CVICU           — post-cardiac-surgery; 1,543 patients
+##    Medical         — MICU + MICU/SICU; ~1,315 patients
+##    Surgical/Trauma — SICU + TSICU; ~1,127 patients
+##  Descriptive-only (too few caregivers for PSM):
+##    CCU (4 caregivers), Neuro units (<10 caregivers each)
 
-analysis_data <- explicit_extubations %>%
+unit_groups <- list(
+  CVICU      = "Cardiac Vascular Intensive Care Unit (CVICU)",
+  Medical    = c("Medical Intensive Care Unit (MICU)",
+                 "Medical/Surgical Intensive Care Unit (MICU/SICU)"),
+  SurgTrauma = c("Surgical Intensive Care Unit (SICU)",
+                 "Trauma SICU (TSICU)")
+)
+
+analysis_base <- explicit_extubations %>%
+  filter(caregiver_unit_n >= 5) %>%
   left_join(ccsr_flags, by = "subject_id") %>%
   mutate(across(all_of(psm_ccsr_codes), ~ replace_na(.x, 0))) %>%
   mutate(
-    fe_q25 = quantile(caregiver_fe_rate, 0.25, na.rm = TRUE),
-    fe_q75 = quantile(caregiver_fe_rate, 0.75, na.rm = TRUE),
-    fe_group = case_when(
-      caregiver_fe_rate >= fe_q75 ~ "high",
-      caregiver_fe_rate <= fe_q25 ~ "low",
-      TRUE                        ~ "middle"
+    unit_group = case_when(
+      first_careunit %in% unit_groups$CVICU      ~ "CVICU",
+      first_careunit %in% unit_groups$Medical    ~ "Medical",
+      first_careunit %in% unit_groups$SurgTrauma ~ "Surgical/Trauma",
+      TRUE                                       ~ "Other"
     )
   )
 
-cat("\nFE rate Q25:", round(analysis_data$fe_q25[1], 3), "\n")
-cat("FE rate Q75:", round(analysis_data$fe_q75[1], 3), "\n")
-cat("Group sizes:\n")
-print(table(analysis_data$fe_group))
+cat("\nanalysis_base N (caregiver_unit_n >= 5):", nrow(analysis_base), "\n")
+cat("Unit group sizes:\n")
+print(table(analysis_base$unit_group))
 
-cat("\nSurvival by FE category:\n")
-analysis_data %>%
-  mutate(fe_cat = case_when(
-    caregiver_fe_rate < 0.05  ~ "1. <5%",
-    caregiver_fe_rate < 0.15  ~ "2. 5-15%",
-    caregiver_fe_rate < 0.25  ~ "3. 15-25%",
-    TRUE                      ~ "4. >25%"
-  )) %>%
-  group_by(fe_cat) %>%
+## Within-group FE rate quartile survival table
+cat("\n── Within-group FE rate quartile survival ───────────────────────────────\n")
+
+group_quartile_survival <- analysis_base %>%
+  filter(unit_group != "Other") %>%
+  group_by(unit_group) %>%
+  mutate(fe_quartile = ntile(caregiver_fe_rate, 4)) %>%
+  group_by(unit_group, fe_quartile) %>%
   summarise(
-    n_patients    = n(),
+    n             = n(),
     n_caregivers  = n_distinct(caregiver_id),
-    mean_fe_rate  = mean(caregiver_fe_rate),
-    survival_12mo = mean(survival_12mo, na.rm = TRUE),
+    fe_range      = paste0(round(min(caregiver_fe_rate) * 100, 1), "–",
+                           round(max(caregiver_fe_rate) * 100, 1), "%"),
+    survival_12mo = round(mean(survival_12mo, na.rm = TRUE), 3),
     .groups       = "drop"
   ) %>%
-  print()
+  arrange(unit_group, fe_quartile)
 
-psm_data <- analysis_data %>%
-  filter(fe_group != "middle") %>%
-  mutate(
-    treated        = as.integer(fe_group == "high"),
-    gender_m       = as.integer(gender == "M"),
-    intub_surgical = as.integer(intubation_type == "surgical"),
-    intub_med_resp = as.integer(intubation_type == "medical-respiratory")
-  ) %>%
-  filter(
-    !is.na(charlson),
-    !is.na(sofa),
-    !is.na(norepinephrine),
-    !is.na(vent_hours)
+print(group_quartile_survival, n = Inf)
+cat("────────────────────────────────────────────────────────────────────────\n")
+
+
+## ── 4. GROUP-STRATIFIED PROPENSITY SCORE MATCHING AND IPW ────────────────────
+##
+##  PSM run separately within each unit group. Group-specific Q25/Q75 ensure
+##  "high" and "low" FE rate are benchmarked against that group's distribution.
+##  CCSR codes with zero variance within a group are dropped from the PS model
+##  to avoid complete separation. IPW run within the same group.
+##  Outcome models use no MatchIt subclass weights (1:1 without-replacement PSM;
+##  subclass weights re-introduce stratum-size imbalance and invert the estimate).
+
+run_group_psm <- function(group_name, units, base_data) {
+
+  group_data <- base_data %>%
+    filter(first_careunit %in% units) %>%
+    mutate(
+      fe_q25    = quantile(caregiver_fe_rate, 0.25, na.rm = TRUE),
+      fe_q75    = quantile(caregiver_fe_rate, 0.75, na.rm = TRUE),
+      fe_group  = case_when(
+        caregiver_fe_rate >= fe_q75 ~ "high",
+        caregiver_fe_rate <= fe_q25 ~ "low",
+        TRUE                        ~ "middle"
+      ),
+      treated        = as.integer(fe_group == "high"),
+      gender_m       = as.integer(gender == "M"),
+      intub_surgical = as.integer(intubation_type == "surgical"),
+      intub_med_resp = as.integer(intubation_type == "medical-respiratory")
+    ) %>%
+    filter(
+      fe_group != "middle",
+      !is.na(charlson), !is.na(sofa), !is.na(norepinephrine), !is.na(vent_hours)
+    )
+
+  cat(sprintf("\n── %s ──────────────────────────────────────────\n", group_name))
+  cat("N patients:", nrow(group_data),
+      "  Treated:", sum(group_data$treated),
+      "  Control:", sum(group_data$treated == 0), "\n")
+  cat("FE rate Q25:", round(group_data$fe_q25[1] * 100, 1), "%",
+      " Q75:", round(group_data$fe_q75[1] * 100, 1), "%\n")
+
+  if (sum(group_data$treated) < 20 || sum(group_data$treated == 0) < 20) {
+    cat("Insufficient treated/control N — skipping PSM.\n")
+    return(NULL)
+  }
+
+  nonzero_ccsr <- psm_ccsr_codes[
+    sapply(psm_ccsr_codes, function(v) var(group_data[[v]], na.rm = TRUE) > 0)
+  ]
+  cat("CCSR flags (non-zero variance in group):", length(nonzero_ccsr), "\n")
+
+  grp_formula <- as.formula(paste(
+    "treated ~ anchor_age + gender_m + charlson + sofa + norepinephrine +
+     vent_hours + intub_surgical + intub_med_resp +",
+    paste(nonzero_ccsr, collapse = " + ")
+  ))
+
+  use_exact <- length(units) > 1
+
+  tryCatch({
+    m_out <- if (use_exact) {
+      matchit(grp_formula, data = group_data, method = "quick",
+              ratio = 1, caliper = 0.2, std.caliper = TRUE,
+              distance = "logit", exact = ~ first_careunit)
+    } else {
+      matchit(grp_formula, data = group_data, method = "quick",
+              ratio = 1, caliper = 0.2, std.caliper = TRUE,
+              distance = "logit")
+    }
+
+    md <- match.data(m_out)
+    cat("Matched N:", nrow(md), "\n")
+
+    surv_high <- mean(md$survival_12mo[md$treated == 1], na.rm = TRUE)
+    surv_low  <- mean(md$survival_12mo[md$treated == 0], na.rm = TRUE)
+    cat("Survival — high FE:", round(surv_high, 3),
+        "  low FE:", round(surv_low, 3), "\n")
+
+    fit_u <- glm(survival_12mo ~ treated, data = md, family = binomial)
+    fit_a <- glm(
+      survival_12mo ~ treated + anchor_age + charlson + sofa +
+        norepinephrine + vent_hours + intub_surgical + intub_med_resp,
+      data = md, family = binomial
+    )
+
+    or_u <- exp(coef(fit_u)["treated"])
+    ci_u <- exp(confint(fit_u)["treated", ])
+    p_u  <- summary(fit_u)$coefficients["treated", "Pr(>|z|)"]
+
+    or_a <- exp(coef(fit_a)["treated"])
+    ci_a <- exp(confint(fit_a)["treated", ])
+    p_a  <- summary(fit_a)$coefficients["treated", "Pr(>|z|)"]
+
+    cat(sprintf("PSM OR unadjusted:      %.3f (%.3f-%.3f), p = %.4f\n",
+                or_u, ci_u[1], ci_u[2], p_u))
+    cat(sprintf("PSM OR doubly adjusted: %.3f (%.3f-%.3f), p = %.4f\n",
+                or_a, ci_a[1], ci_a[2], p_a))
+
+    ## Secondary outcomes: hospital mortality and 30-day mortality
+    for (sec_outcome in c("hospital_expire_flag", "died_30d")) {
+      if (!sec_outcome %in% names(md)) next
+      fit_s <- tryCatch(
+        glm(reformulate("treated", response = sec_outcome), data = md, family = binomial),
+        error = function(e) NULL
+      )
+      if (is.null(fit_s)) next
+      or_s  <- exp(coef(fit_s)["treated"])
+      ci_s  <- exp(confint(fit_s)["treated", ])
+      p_s   <- summary(fit_s)$coefficients["treated", "Pr(>|z|)"]
+      lbl   <- if (sec_outcome == "hospital_expire_flag") "Hospital mortality OR:" else "30-day mortality  OR:"
+      cat(sprintf("%s %.3f (%.3f-%.3f), p = %.4f\n", lbl, or_s, ci_s[1], ci_s[2], p_s))
+    }
+
+    ## IPW within group
+    ipw_g   <- weightit(grp_formula, data = group_data,
+                        method = "ps", estimand = "ATE")
+    ipw_fit <- glm(survival_12mo ~ treated, data = group_data,
+                   family = binomial, weights = ipw_g$weights)
+    or_ipw  <- exp(coef(ipw_fit)["treated"])
+    ci_ipw  <- exp(confint(ipw_fit)["treated", ])
+    p_ipw   <- summary(ipw_fit)$coefficients["treated", "Pr(>|z|)"]
+    cat(sprintf("IPW OR:                 %.3f (%.3f-%.3f), p = %.4f\n",
+                or_ipw, ci_ipw[1], ci_ipw[2], p_ipw))
+
+    ## Love plot
+    p_love <- love.plot(m_out, threshold = 0.1, abs = TRUE,
+                        title      = paste("PSM Balance —", group_name),
+                        colors     = c("#D95F02", "#1D9E8E"),
+                        stars      = "std", var.order = "unadjusted")
+    fname <- paste0("../figures/psm_love_",
+                    tolower(gsub("[^a-zA-Z0-9]", "_", group_name)), ".png")
+    ggsave(fname, plot = p_love, width = 10, height = 10, dpi = 150)
+    cat("Love plot saved:", basename(fname), "\n")
+
+    list(
+      group     = group_name,
+      n_psm     = nrow(md),
+      fe_q25    = group_data$fe_q25[1],
+      fe_q75    = group_data$fe_q75[1],
+      surv_high = surv_high,
+      surv_low  = surv_low,
+      or_unadj  = or_u, ci_unadj = ci_u, p_unadj = p_u,
+      or_adj    = or_a, ci_adj   = ci_a, p_adj   = p_a,
+      or_ipw    = or_ipw, ci_ipw = ci_ipw, p_ipw  = p_ipw,
+      match_out = m_out, matched_data = md
+    )
+  }, error = function(e) {
+    cat("PSM failed:", conditionMessage(e), "\n")
+    NULL
+  })
+}
+
+set.seed(237)
+psm_results_list <- list(
+  CVICU = run_group_psm(
+    "CVICU", unit_groups$CVICU, analysis_base
+  ),
+  Medical = run_group_psm(
+    "Medical (MICU + MICU/SICU)", unit_groups$Medical, analysis_base
+  ),
+  SurgTrauma = run_group_psm(
+    "Surgical/Trauma (SICU + TSICU)", unit_groups$SurgTrauma, analysis_base
   )
+)
 
-cat("\nPSM dataset N:", nrow(psm_data), "\n")
-cat("Treated (high FE >=", round(analysis_data$fe_q75[1], 3), "):",
-    sum(psm_data$treated), "\n")
-cat("Control (low FE <=", round(analysis_data$fe_q25[1], 3), "):",
-    sum(psm_data$treated == 0), "\n")
+cat("\n── PSM + IPW Summary Across Groups ──────────────────────────────────────\n")
+psm_summary_tbl <- bind_rows(lapply(psm_results_list, function(r) {
+  if (is.null(r)) return(NULL)
+  tibble(
+    group      = r$group,
+    n_matched  = r$n_psm,
+    fe_q25_pct = round(r$fe_q25 * 100, 1),
+    fe_q75_pct = round(r$fe_q75 * 100, 1),
+    surv_high  = round(r$surv_high, 3),
+    surv_low   = round(r$surv_low,  3),
+    OR_adj     = round(r$or_adj,    3),
+    ci_lo      = round(r$ci_adj[1], 3),
+    ci_hi      = round(r$ci_adj[2], 3),
+    p_adj      = round(r$p_adj,     4),
+    OR_ipw     = round(r$or_ipw,    3),
+    p_ipw      = round(r$p_ipw,     4)
+  )
+}))
+print(psm_summary_tbl, n = Inf)
+cat("────────────────────────────────────────────────────────────────────────\n")
 
-ccsr_formula_terms <- paste(psm_ccsr_codes, collapse = " + ")
 
-psm_formula <- as.formula(paste(
-  "treated ~ anchor_age + gender_m + charlson + sofa + norepinephrine +
-   vent_hours + intub_surgical + intub_med_resp +",
-  ccsr_formula_terms
-))
+## ── 5. COMFORT EXTUBATION SENSITIVITY — CVICU ────────────────────────────────
+##
+##  Patients extubated as part of terminal/withdrawal care (hospital death
+##  within 3 days of extubation) have near-certain short-term mortality but
+##  no reintubation, giving caregivers a spuriously low FE rate. Exclude
+##  these cases and repeat the CVICU PSM to confirm the signal is not driven
+##  by comfort-care confounding.
 
+cat("\n── CVICU PSM: excluding likely comfort extubations ──────────────────────\n")
+n_comfort_cvicu <- sum(analysis_base$likely_comfort & analysis_base$unit_group == "CVICU",
+                       na.rm = TRUE)
+cat("Comfort extubations excluded from CVICU:", n_comfort_cvicu, "\n")
 
-## ── 4. PROPENSITY SCORE MATCHING ─────────────────────────────────────────────
-
+analysis_base_noc <- analysis_base %>% filter(!likely_comfort)
 set.seed(237)
-match_out <- matchit(
-  psm_formula,
-  data        = psm_data,
-  method      = "quick",
-  ratio       = 1,
-  caliper     = 0.2,
-  std.caliper = TRUE,
-  distance    = "logit"
+cvicu_noc <- run_group_psm(
+  "CVICU (comfort-excluded)", unit_groups$CVICU, analysis_base_noc
 )
-
-summary(match_out)
-
-p_love <- love.plot(
-  match_out,
-  threshold  = 0.1,
-  title      = "Covariate Balance Before and After PSM",
-  colors     = c("#D95F02", "#1D9E8E"),
-  stars      = "std",
-  var.order  = "unadjusted",
-  abs        = TRUE
-)
-print(p_love)
-ggsave("../figures/psm_love_plot.png", plot = p_love,
-       width = 10, height = 12, dpi = 150)
-cat("Love plot saved.\n")
-
-
-## ── 5. TREATMENT EFFECT ESTIMATION ───────────────────────────────────────────
-
-matched_data <- match.data(match_out)
-
-cat("\nMatched N:", nrow(matched_data), "\n")
-cat("Survival — high FE:",
-    round(mean(matched_data$survival_12mo[matched_data$treated == 1],
-               na.rm = TRUE), 3), "\n")
-cat("Survival — low FE:",
-    round(mean(matched_data$survival_12mo[matched_data$treated == 0],
-               na.rm = TRUE), 3), "\n")
-
-outcome_unadj <- glm(
-  survival_12mo ~ treated,
-  data    = matched_data,
-  family  = binomial,
-  weights = weights
-)
-or_unadj <- exp(coef(outcome_unadj)["treated"])
-ci_unadj <- exp(confint(outcome_unadj)["treated", ])
-p_unadj  <- summary(outcome_unadj)$coefficients["treated", "Pr(>|z|)"]
-
-cat("\nOR (unadjusted):", round(or_unadj, 3), "\n")
-cat("95% CI:", round(ci_unadj, 3), "\n")
-cat("p-value:", round(p_unadj, 4), "\n")
-
-outcome_adj <- glm(
-  survival_12mo ~ treated + anchor_age + charlson + sofa +
-    norepinephrine + vent_hours + intub_surgical + intub_med_resp,
-  data    = matched_data,
-  family  = binomial,
-  weights = weights
-)
-or_adj <- exp(coef(outcome_adj)["treated"])
-ci_adj <- exp(confint(outcome_adj)["treated", ])
-p_adj  <- summary(outcome_adj)$coefficients["treated", "Pr(>|z|)"]
-
-cat("\nOR (doubly adjusted):", round(or_adj, 3), "\n")
-cat("95% CI:", round(ci_adj, 3), "\n")
-cat("p-value:", round(p_adj, 4), "\n")
-
-outcome_int <- glm(
-  survival_12mo ~ treated * intub_med_resp,
-  data    = matched_data,
-  family  = binomial,
-  weights = weights
-)
-p_interaction <- summary(outcome_int)$coefficients[
-  "treated:intub_med_resp", "Pr(>|z|)"]
-cat("\nEffect modification (treated × medical-respiratory) p:",
-    round(p_interaction, 4), "\n")
-
-
-## ── 6. IPW SENSITIVITY ANALYSIS ──────────────────────────────────────────────
-
-set.seed(237)
-ipw_out <- weightit(
-  psm_formula,
-  data     = psm_data,
-  method   = "ps",
-  estimand = "ATE"
-)
-summary(ipw_out)
-
-ipw_model <- glm(
-  survival_12mo ~ treated,
-  data    = psm_data,
-  family  = binomial,
-  weights = ipw_out$weights
-)
-or_ipw <- exp(coef(ipw_model)["treated"])
-ci_ipw <- exp(confint(ipw_model)["treated", ])
-p_ipw  <- summary(ipw_model)$coefficients["treated", "Pr(>|z|)"]
-
-cat("\nIPW OR:", round(or_ipw, 3), "\n")
-cat("IPW 95% CI:", round(ci_ipw, 3), "\n")
-cat("IPW p-value:", round(p_ipw, 4), "\n")
 
 
 ## ── 7. CAREGIVER-LEVEL PARTIAL CORRELATION ────────────────────────────────────
@@ -332,6 +416,54 @@ pcor_vol <- pcor.test(
 cat("\nPartial correlation: volume ~ survival | FE rate\n")
 cat("r =", round(pcor_vol$estimate, 3), "\n")
 cat("p =", round(pcor_vol$p.value,  4), "\n")
+cat("────────────────────────────────────────────────────────────────────────\n")
+
+cat("\n── Volume threshold sensitivity ─────────────────────────────────────────\n")
+for (min_n in c(10, 20)) {
+  cs_sub <- caregiver_summary %>% filter(n_patients_sample >= min_n)
+  if (nrow(cs_sub) < 10) {
+    cat(sprintf("n >= %d: fewer than 10 caregivers — skipped\n", min_n))
+    next
+  }
+  pc_sub <- pcor.test(cs_sub$caregiver_fe_rate, cs_sub$survival_rate, cs_sub$n_patients_sample)
+  cat(sprintf("n >= %d (%d caregivers): r = %.3f, p = %.4f\n",
+              min_n, nrow(cs_sub), pc_sub$estimate, pc_sub$p.value))
+}
+cat("────────────────────────────────────────────────────────────────────────\n")
+
+
+## ── 7b. UNIT-STRATIFIED PARTIAL CORRELATION ───────────────────────────────────
+##
+##  Repeat the caregiver-level partial correlation within each ICU unit
+##  (restricted to units with >= 10 caregivers in caregiver_summary).
+##  Reveals whether the FE rate → survival signal is consistent across units
+##  or driven by a subset. Informs grouping decisions for further analysis.
+##
+##  caregiver_summary uses primary_careunit (modal unit per caregiver).
+
+unit_pcor_results <- caregiver_summary %>%
+  filter(!is.na(primary_careunit)) %>%
+  group_by(primary_careunit) %>%
+  group_modify(~ {
+    df <- .x
+    base <- tibble(
+      n_caregivers  = nrow(df),
+      mean_fe_rate  = round(mean(df$caregiver_fe_rate, na.rm = TRUE), 4),
+      mean_survival = round(mean(df$survival_rate,     na.rm = TRUE), 3)
+    )
+    if (nrow(df) < 5) return(mutate(base, r = NA_real_, p = NA_real_))
+    pc <- tryCatch(
+      pcor.test(df$caregiver_fe_rate, df$survival_rate, df$n_patients_sample),
+      error = function(e) list(estimate = NA_real_, p.value = NA_real_)
+    )
+    mutate(base, r = round(pc$estimate, 3), p = round(pc$p.value, 4))
+  }) %>%
+  ungroup() %>%
+  arrange(desc(n_caregivers))
+
+cat("\n── Unit-stratified partial correlations ─────────────────────────────────\n")
+cat("(FE rate ~ survival | caregiver volume, by primary_careunit)\n")
+print(unit_pcor_results, n = Inf)
 cat("────────────────────────────────────────────────────────────────────────\n")
 
 
@@ -408,8 +540,8 @@ ggplot() +
   ) +
   annotate(
     "text",
-    x     = max(caregivers_nonzero$caregiver_fe_rate) * 0.62,
-    y     = b_hat + 0.025,
+    x     = max(caregivers_nonzero$caregiver_fe_rate) * 0.7,
+    y     = b_hat - 0.05,
     label = paste0(
       "Survival floor = ", round(b_hat, 3),
       " (95% CI ", round(b_ci[1], 3), "\u2013", round(b_ci[2], 3), ")"
@@ -440,23 +572,19 @@ cat("Exponential model plot saved.\n")
 ## ── 9. RESULTS SUMMARY ───────────────────────────────────────────────────────
 
 cat("\n── FINAL RESULTS SUMMARY ────────────────────────────────────────────────\n")
-cat(sprintf("Survival — high FE caregiver (>= %.1f%%):  %.1f%%\n",
-            analysis_data$fe_q75[1] * 100,
-            mean(matched_data$survival_12mo[matched_data$treated == 1],
-                 na.rm = TRUE) * 100))
-cat(sprintf("Survival — low FE caregiver  (<= %.1f%%):  %.1f%%\n",
-            analysis_data$fe_q25[1] * 100,
-            mean(matched_data$survival_12mo[matched_data$treated == 0],
-                 na.rm = TRUE) * 100))
-cat("\n")
-cat(sprintf("PSM OR (unadjusted):        %.3f (%.3f-%.3f), p = %.4f\n",
-            or_unadj, ci_unadj[1], ci_unadj[2], p_unadj))
-cat(sprintf("PSM OR (doubly adjusted):   %.3f (%.3f-%.3f), p = %.4f\n",
-            or_adj, ci_adj[1], ci_adj[2], p_adj))
-cat(sprintf("IPW OR:                     %.3f (%.3f-%.3f), p = %.4f\n",
-            or_ipw, ci_ipw[1], ci_ipw[2], p_ipw))
-cat(sprintf("Effect modification p:      %.4f\n", p_interaction))
-cat("\n")
+cat("Group-stratified PSM (top vs bottom quartile within group,\n")
+cat("caregiver_unit_n >= 5, doubly adjusted OR | IPW OR):\n\n")
+for (r in psm_results_list) {
+  if (is.null(r)) next
+  cat(sprintf("  %-38s  Q25=%.1f%%  Q75=%.1f%%\n",
+              r$group, r$fe_q25 * 100, r$fe_q75 * 100))
+  cat(sprintf("    Survival: %.1f%% (high FE) vs %.1f%% (low FE)\n",
+              r$surv_high * 100, r$surv_low * 100))
+  cat(sprintf("    PSM OR:   %.3f (%.3f-%.3f), p = %.4f\n",
+              r$or_adj, r$ci_adj[1], r$ci_adj[2], r$p_adj))
+  cat(sprintf("    IPW OR:   %.3f (%.3f-%.3f), p = %.4f\n\n",
+              r$or_ipw, r$ci_ipw[1], r$ci_ipw[2], r$p_ipw))
+}
 cat(sprintf("Partial r (FE rate | vol):  %.3f, p = %.4f\n",
             pcor_fe$estimate, pcor_fe$p.value))
 cat(sprintf("Partial r (volume | FE):    %.3f, p = %.4f\n",
@@ -466,15 +594,10 @@ cat(sprintf("Survival floor b:           %.3f (95%% CI %.3f-%.3f)\n",
             b_hat, b_ci[1], b_ci[2]))
 cat(sprintf("Decay rate k:               %.1f  (95%% CI %.1f-%.1f)\n",
             k_hat, k_ci[1], k_ci[2]))
-cat("Interpretation: ~59% survive regardless of caregiver FE rate;\n")
-cat("~41% represent outcomes potentially sensitive to caregiver performance.\n")
 cat("────────────────────────────────────────────────────────────────────────\n")
 
 ## Save results
-save(match_out, matched_data, ipw_out,
-     or_unadj, ci_unadj, p_unadj,
-     or_adj, ci_adj, p_adj,
-     or_ipw, ci_ipw, p_ipw,
+save(psm_results_list, psm_summary_tbl, group_quartile_survival,
      pcor_fe, pcor_vol,
      nls_fit, b_hat, k_hat, b_ci, k_ci,
      file = "../data/psm_results.RData")

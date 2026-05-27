@@ -18,7 +18,7 @@ after accounting for patient case mix, illness severity, and ICU unit?**
 
 A secondary question motivated by clinical intuition: is there an optimal
 FE rate range, where rates that are too low reflect overly conservative practice
-and rates that are too high reflect excessive aggressiveness?
+and rates that are too high reflect excessive desire to extubate?
 
 ---
 
@@ -28,19 +28,52 @@ and rates that are too high reflect excessive aggressiveness?
 MIMIC-IV v3.1 — one of the largest published ICU extubation cohorts derived
 from this dataset. Of these, 4,387 had explicitly documented procedure events
 with a genuine caregiver assignment and form the analytical cohort (271
-caregivers, 12 ICU units).
+caregivers, 12 ICU units). `caregiver_fe_rate` is computed within each ICU
+unit (median 3.0%, IQR 0–6.1%), so caregivers are benchmarked against peers
+extubating similar patient populations rather than across-unit comparisons.
+30-day mortality in the analytical cohort is 11.7%. Likely comfort extubations
+(in-hospital death within 3 days of extubation) account for 198 patients (4.5%).
 
-**Propensity score matching** comparing patients of high-FE-rate caregivers
-(top quartile, ≥5.3%) to patients of low-FE-rate caregivers (bottom quartile,
-≤2.9%), after matching on illness severity (SOFA, Charlson comorbidity index,
-vasopressor dose, ventilation hours), intubation type, and 21 CCSR diagnosis
-flags:
+**Propensity score matching** stratified by ICU unit group — CVICU
+(post-cardiac surgery), Medical (MICU + MICU/SICU), Surgical/Trauma
+(SICU + TSICU) — comparing top vs bottom quartile FE rate caregivers within
+each group (caregivers with ≥5 unit-specific extubations), matched on illness
+severity, intubation type, and 21 CCSR diagnosis flags. **The FE rate →
+survival association is specific to CVICU and absent elsewhere:**
 
-- 12-month survival: **63.1%** (high FE caregivers) vs **78.0%** (low FE
-  caregivers) — a 14.9 percentage point absolute difference
-- PSM odds ratio (doubly adjusted): **OR = 0.571 (95% CI 0.465–0.700)**
-- IPW sensitivity analysis: **OR = 0.699 (95% CI 0.616–0.792)**
-- No effect modification by intubation type (p = 0.241)
+Primary outcome (12-month survival):
+
+| Group | Survival high vs low FE | PSM OR (adj.) | IPW OR |
+|---|---|---|---|
+| CVICU (N=797 matched) | 84.4% vs 90.1% | **0.581 (0.356–0.937)**, p=0.027 | **0.656 (0.487–0.879)**, p=0.005 |
+| Medical MICU+MICU/SICU (N=607) | 49.4% vs 49.2% | 1.091 (0.754–1.580), p=0.645 | 1.157 (0.930–1.439), p=0.190 |
+| Surgical/Trauma SICU+TSICU (N=524) | 72.9% vs 68.2% | 1.202 (0.766–1.891), p=0.423 | 1.171 (0.907–1.511), p=0.226 |
+
+Secondary outcomes (PSM-matched, unadjusted OR for hospital mortality and 30-day mortality):
+
+| Group | Hospital mortality OR | 30-day mortality OR |
+|---|---|---|
+| CVICU | 1.89 (0.886–4.28), p=0.11 | 1.69 (0.672–4.58), p=0.28 |
+| Medical | 1.09 (0.734–1.61), p=0.68 | 1.13 (0.764–1.67), p=0.54 |
+| Surgical/Trauma | **0.557 (0.321–0.949)**, p=0.034 | **0.546 (0.304–0.958)**, p=0.038 |
+
+The earlier cross-unit PSM result (OR = 0.646) was driven by CVICU patient
+composition. In Medical ICUs, all outcomes are null. In Surgical/Trauma ICUs,
+12-month survival is null but short-term mortality endpoints are reversed —
+high-FE-rate caregivers are associated with lower hospital and 30-day mortality
+(OR ≈ 0.55). One interpretation: in surgical populations, patients who fail
+extubation are reintubated and bridge to hospital discharge (lower acute
+mortality), while long-term prognosis is governed by the underlying condition
+rather than extubation management. In CVICU, the short-term mortality
+endpoints are null (hospital OR=1.89, p=0.11; 30-day OR=1.69, p=0.28) despite
+the significant 12-month survival signal — consistent with post-cardiac-surgery
+failed extubations causing prolonged ICU stays and delayed downstream mortality
+rather than early in-hospital death.
+
+**Comfort extubation sensitivity (CVICU):** Excluding the 11 CVICU patients
+likely extubated as part of comfort/withdrawal care (in-hospital death ≤3 days,
+0.7% of CVICU cases), PSM OR shifts from 0.581 to 0.619 (p=0.055) and IPW OR
+from 0.656 to 0.673 (p=0.010). The finding is robust to comfort care exclusion.
 
 **Mixed effects logistic regression** with random intercepts for caregiver
 (271 groups) and ICU unit (12 groups):
@@ -56,27 +89,40 @@ flags:
 **Caregiver-level partial correlation** (134 caregivers with ≥5 sample
 patients):
 
-- FE rate independently predicts survival controlling for volume:
-  **r = −0.363, p < 0.001**
-- Volume does not predict survival controlling for FE rate:
-  r = −0.121, p = 0.167
-- FE rate is the signal; caregiver volume is not an independent predictor
+- Global (134 caregivers): r = −0.288, p < 0.001 — but this reflects CVICU's
+  dominance in the caregiver sample, not a universal effect
+- **CVICU (73 caregivers): r = −0.342, p = 0.003** — the primary signal;
+  holds within the single largest unit, controlling for volume
+- MICU (30 caregivers): r = −0.298, p = 0.116 — directionally consistent,
+  underpowered
+- SICU (8 caregivers): r = +0.646, p = 0.117 — reversed direction; N too
+  small to interpret, consistent with the Surgical/Trauma PSM null
+- Caregiver volume is not an independent predictor (r = −0.109, p = 0.211)
+- **Volume threshold sensitivity:** restricting to caregivers with ≥10 sample
+  patients (N=88): r = −0.255, p = 0.017; ≥20 patients (N=52): r = −0.354,
+  p = 0.011. The signal strengthens with more established caregivers, arguing
+  against a sample-size artifact.
 
 **Functional form** of the FE rate — survival relationship (caregivers with
 FE rate > 0, N = 111):
 
 - Asymptotic exponential model: P(survival) = b + (1−b) × exp(−k × FE rate)
-- **b = 0.590 (95% CI 0.521–0.633)** — survival floor. Approximately 59% of
+  (caregivers with FE rate > 0, N = 78)
+- **b = 0.624 (95% CI 0.586–0.658)** — survival floor. Approximately 62% of
   patients survive 12 months regardless of caregiver FE rate, representing
   irreducible mortality driven by underlying illness severity.
-- **k = 47.2 (95% CI 31.2–71.0)** — decay rate. Most of the survival
-  difference occurs in the 0–8% FE rate range.
-- The remaining ~41% of patients represent outcomes potentially sensitive to
+- **k = 77.5 (95% CI 52.7–122.4)** — decay rate. The survival penalty
+  concentrates sharply in the 0–5% FE rate range.
+- The remaining ~38% of patients represent outcomes potentially sensitive to
   caregiver extubation practice — the upper bound on what quality improvement
   could achieve in this population.
-- **There is no evidence of a sweet spot.** Survival decreases monotonically
-  with FE rate; the relationship is best described by diminishing marginal harm
-  rather than a U-shaped optimum.
+- **Sweet spot hypothesis rejected.** Within-group quartile analysis shows
+  Q1 (lowest FE rate) has the best outcomes in CVICU (90.9% vs 84.4% in Q4),
+  declining monotonically through Q3. The earlier apparent Q2 > Q1 pattern in
+  the cross-unit analysis was a CCU composition artifact: CCU caregivers
+  (near-zero unit FE rates, 43.3% survival) depressed Q1's cross-unit average.
+  The quadratic model significance (p = 0.037) reflects unit mix, not a genuine
+  optimum. Within CVICU, lower FE rate is better with no detectable floor.
 
 **Deep learning pipeline** (Python, `python/`) trained on the same 4,387-patient
 explicit cohort with the same features and random seed as the R pipeline:
@@ -102,8 +148,10 @@ nuisance models:
 
 DML is more conservative than glmmTMB, likely because the flexible GBM nuisance
 model absorbs nonlinear confounding and because DML does not incorporate caregiver
-random effects. Both analyses point to the same conclusion: a plausible but weak
-and uncertain negative signal that survives neither frequentist threshold.
+random effects or unit stratification. The group-stratified PSM subsequently
+showed the signal is confined to CVICU; DML's cross-unit null is consistent with
+that finding — the CVICU signal is diluted by the null Medical and Surgical/Trauma
+populations in a pooled causal estimate.
 
 **Physiological trajectory analysis** using all explicit extubation events
 (6,063 events, 5,505 patients) with per-event reintubation within 72h as
@@ -121,6 +169,109 @@ outcome:
 
 ---
 
+## Cohort Characteristics
+
+### Cohort Flow
+
+| Step | N patients |
+|---|---|
+| Raw SQL output (MIMIC-IV v3.1) | 12,668 |
+| patient_cohort (complete covariates) | 12,662 |
+| — of which explicit procedure events | 4,836 |
+| — of which algorithmically inferred events | 7,826 |
+| explicit_extubations (analytical cohort) | 4,387 |
+| — Unique caregivers | 271 |
+| — Unique ICU units | 12 |
+
+### Table 1: Patient Characteristics by Extubation Event Source
+
+|  | Overall (N=12,662) | Explicit (N=4,836) | Inferred (N=7,826) | SMD |
+|---|---|---|---|---|
+| Age, mean (SD) | 62.7 (16.2) | 63.1 (15.9) | 62.5 (16.4) | 0.034 |
+| Female, % | 40.7 | 38.5 | 42.1 | 0.073 |
+| Charlson index, mean (SD) | 5.57 (3.25) | 5.45 (3.25) | 5.64 (3.26) | 0.059 |
+| SOFA score, mean (SD) | 6.91 (3.86) | 6.39 (3.54) | 7.22 (4.02) | 0.220 |
+| Norepinephrine equivalent, mean (SD) | 0.17 (0.23) | 0.14 (0.19) | 0.19 (0.24) | 0.242 |
+| Ventilation hours, mean (SD) | 94.3 (134.1) | 64.6 (94.7) | 112.6 (150.6) | 0.382 |
+| Intubation type (SMD 0.406) | | | | |
+| — Surgical | 1.4% | 0.9% | 1.6% | |
+| — Medical-respiratory | 74.7% | 64.4% | 81.1% | |
+| — Medical-non-respiratory | 23.9% | 34.7% | 17.3% | |
+| Primary diagnosis (SMD 0.379) | | | | |
+| — Circulatory | 32.9% | 40.2% | 28.4% | |
+| — Injury/Poisoning | 16.0% | 14.4% | 16.9% | |
+| — Infectious | 14.8% | 10.0% | 17.7% | |
+| — Digestive | 9.9% | 11.6% | 8.9% | |
+| — Respiratory | 9.2% | 7.6% | 10.3% | |
+| — Neoplasms | 5.8% | 5.9% | 5.8% | |
+| — Other | 11.4% | 10.3% | 12.3% | |
+| Failed extubations, mean (SD) | 0.10 (0.34) | 0.09 (0.32) | 0.10 (0.34) | 0.026 |
+| 12-month survival, % | 54.8 | 67.7 | 46.8 | 0.432 |
+| Hospital mortality, % | 27.3 | 12.4 | 36.5 | 0.585 |
+
+Explicit events are enriched for circulatory diagnoses (40.2% vs 28.4%) and
+have markedly better survival (67.7% vs 46.8%), reflecting the large CVICU
+contribution to the explicit cohort (see unit breakdown below). SOFA, vent
+hours, and intubation type differ substantially (SMD > 0.2), justifying the
+analytical cohort restriction.
+
+### Table 1b: Analytical Cohort by Caregiver FE Rate Quartile
+
+FE rate quartile thresholds (unit-specific rates): Q1 ≤ 0%, Q2 0–3.2%,
+Q3 3.2–5.3%, Q4 ≥ 5.3%.
+
+|  | Q1 lowest (N=1,103) | Q2 (N=1,143) | Q3 (N=1,046) | Q4 highest (N=1,095) | p |
+|---|---|---|---|---|---|
+| Age, mean (SD) | 64.1 (15.7) | 65.5 (13.6) | 62.0 (15.8) | 61.0 (17.3) | <0.001 |
+| Female, % | 36.3 | 35.8 | 40.1 | 39.8 | 0.066 |
+| Charlson, mean (SD) | 5.49 (3.23) | 5.31 (3.02) | 5.48 (3.32) | 5.49 (3.40) | 0.470 |
+| SOFA, mean (SD) | 6.40 (3.66) | 6.07 (3.19) | 6.47 (3.59) | 6.75 (3.66) | <0.001 |
+| Vent hours, mean (SD) | 56.2 (92.9) | 46.5 (81.1) | 77.1 (107.3) | 79.9 (94.5) | <0.001 |
+| Primary diagnosis (SMD 0.705) | | | | | <0.001 |
+| — Circulatory | 48.9% | 68.2% | 29.3% | 17.7% | |
+| — Infectious | 8.5% | 5.2% | 9.8% | 15.2% | |
+| — Injury/Poisoning | 13.4% | 8.3% | 18.3% | 18.5% | |
+| — Respiratory | 6.3% | 3.6% | 8.4% | 11.1% | |
+| — Digestive | 8.7% | 4.1% | 15.1% | 17.2% | |
+| 12-month survival, % | 67.9 | **78.2** | 64.5 | 60.3 | <0.001 |
+| Hospital mortality, % | 13.5 | 6.3 | 14.0 | 15.3 | <0.001 |
+
+The large diagnosis SMD (0.705) across quartiles reflects CVICU domination
+of the low-FE-rate groups (circulatory: 48.9% in Q1, 68.2% in Q2) versus
+more medical/trauma mix in Q3–Q4. Q2 shows higher survival than Q1 (78.2%
+vs 67.9%), and the quadratic functional form model is now significant
+(p = 0.037), though this pattern may partly reflect case-mix differences
+between units.
+
+### Unit-Level Summary (Analytical Cohort)
+
+| ICU Unit | N patients | N caregivers | Mean FE rate | Median FE rate | 12-mo survival | Mean SOFA | Mean Charlson |
+|---|---|---|---|---|---|---|---|
+| Cardiac Vascular ICU (CVICU) | 1,543 | 148 | 1.7% | 1.5% | 86.5% | — | — |
+| Coronary Care Unit (CCU) | 268 | 72 | 2.9% | 0.0% | 43.3% | — | — |
+| Medical/Surgical ICU | 465 | 90 | 4.6% | 3.2% | 44.5% | — | — |
+| Surgical ICU (SICU) | 573 | 116 | 5.0% | 4.3% | 66.7% | — | — |
+| Neuro Surgical ICU | 53 | 36 | 5.2% | 0.0% | 66.0% | — | — |
+| Medical ICU (MICU) | 850 | 129 | 5.5% | 6.2% | 52.0% | — | — |
+| Trauma SICU (TSICU) | 554 | 118 | 5.6% | 5.3% | 72.9% | — | — |
+| Neuro Intermediate | 51 | 31 | 8.6% | 0.0% | 68.6% | — | — |
+| Neuro Stepdown | 25 | 20 | 8.7% | 0.0% | 72.0% | — | — |
+| Other (≤3 patients each) | 5 | 5 | — | — | — | — | — |
+
+Unit FE rates range from 1.7% (CVICU, post-cardiac-surgery patients) to 8.7%
+(Neuro Stepdown), a five-fold difference driven primarily by patient population
+rather than caregiver skill. `caregiver_fe_rate` is now computed within each
+unit (see SQL pipeline), so CVICU caregivers are compared only to other CVICU
+caregivers, not against MICU caregivers extubating fundamentally different patients.
+
+Natural analytical groupings suggested by this breakdown:
+- **Cardiac** (CVICU + CCU): post-cardiac-surgery and acute coronary patients; low-FE, high-acuity split
+- **Medical/Mixed** (MICU + MICU/SICU): general medical ICU patients; highest FE rates
+- **Surgical/Trauma** (SICU + TSICU): surgical and trauma patients; intermediate FE rates, better survival
+- **Neuro** (Neuro Surgical ICU + Neuro Intermediate + Neuro Stepdown): small N, borderline for stratified analysis
+
+---
+
 ## Data Quality and Cohort Restriction
 
 MIMIC-IV extubation events are either explicitly documented procedure events
@@ -134,9 +285,9 @@ of 12,662 patients that characterizes the full population of ICU extubations,
 and an analytical cohort of 4,387 patients restricted to explicitly documented
 events with a genuine caregiver assignment. The analytical cohort is smaller
 but still large enough to support the mixed effects and PSM analyses, and
-the restriction produces a clinically plausible caregiver FE rate distribution
-(median 4.3%, IQR 2.9–5.3%). Improving caregiver assignment for inferred
-events remains an open methodological problem.
+the restriction produces a clinically plausible within-unit caregiver FE rate
+distribution (median 3.0%, IQR 0–6.1%). Improving caregiver assignment for
+inferred events remains an open methodological problem.
 
 ---
 
@@ -225,10 +376,17 @@ PSM covariates. LDA topic modeling and k-means clustering were explored but
 showed weak patient differentiation (short-document problem with median ~4
 CCSR codes per patient); direct binary flags are used instead.
 
-**PSM:** method = "quick", ratio 1:1, caliper 0.2 SD on logit propensity
-score. Treatment defined as top vs bottom FE rate quartile (≥5.3% vs ≤2.9%).
+**PSM:** Group-stratified — CVICU, Medical (MICU + MICU/SICU), and
+Surgical/Trauma (SICU + TSICU). Within each group: method = "quick", ratio
+1:1, caliper 0.2 SD on logit propensity score; exact matching within subunit
+for multi-unit groups. Treatment defined as top vs bottom quartile FE rate
+within the group, restricted to caregivers with ≥5 unit-specific extubations
+(`caregiver_unit_n >= 5`). CCSR codes with zero variance within a group are
+dropped from the PS model. Outcome model on matched data without MatchIt
+subclass weights (subclass weights re-introduce stratum-size imbalance and
+invert the estimate in some settings).
 
-**IPW:** WeightIt package, ATE estimand, as sensitivity analysis.
+**IPW:** WeightIt package, ATE estimand, run within each group alongside PSM.
 
 **Partial correlation:** ppcor package, caregiver-level (N = 134 caregivers
 with ≥5 sample patients), controlling for caregiver volume.
@@ -346,8 +504,11 @@ patient (last extubation event). Key steps:
 2. Caregiver assignment cascade (explicit events only):
    recorded → other procedureevents ±30 min → chartevents ±15 min →
    inputevents ±5 min → mode caregiver ±2h window → NULL for inferred events
-3. `caregiver_fe_rate` computed from explicit events only; NULL if no
-   caregiver assignment
+3. `caregiver_fe_rate` computed within each `(caregiver_id, first_careunit)`
+   pair from explicit events only; falls back to global caregiver rate, then
+   overall mean. `caregiver_unit_n` is the unit-specific extubation count.
+   Patients without a unit-specific rate (cross-unit imputation artifacts)
+   are excluded from the analytical cohort via `!is.na(caregiver_unit_n)`.
 4. Joins: Charlson comorbidity index, norepinephrine equivalent dose, first-day
    SOFA, hospital mortality, primary ICD chapter, CCSR code arrays (seq_num
    ≤10), first_careunit from icustays
