@@ -57,16 +57,15 @@ Secondary outcomes (PSM-matched, unadjusted OR for hospital mortality and 30-day
 | Medical | 1.09 (0.734–1.61), p=0.68 | 1.13 (0.764–1.67), p=0.54 |
 | Surgical/Trauma | **0.557 (0.321–0.949)**, p=0.034 | **0.546 (0.304–0.958)**, p=0.038 |
 
-The earlier cross-unit PSM result (OR = 0.646) was driven by CVICU patient
-composition. In Medical ICUs, all outcomes are null. In Surgical/Trauma ICUs,
-12-month survival is null but short-term mortality endpoints are reversed —
+In Medical ICUs, all outcomes are null. In Surgical/Trauma ICUs,
+12-month survival is null but short-term mortality endpoints are reversed;
 high-FE-rate caregivers are associated with lower hospital and 30-day mortality
 (OR ≈ 0.55). One interpretation: in surgical populations, patients who fail
 extubation are reintubated and bridge to hospital discharge (lower acute
 mortality), while long-term prognosis is governed by the underlying condition
 rather than extubation management. In CVICU, the short-term mortality
 endpoints are null (hospital OR=1.89, p=0.11; 30-day OR=1.69, p=0.28) despite
-the significant 12-month survival signal — consistent with post-cardiac-surgery
+the significant 12-month survival signal. One interpretation: post-cardiac-surgery
 failed extubations causing prolonged ICU stays and delayed downstream mortality
 rather than early in-hospital death.
 
@@ -81,7 +80,7 @@ from 0.656 to 0.673 (p=0.010). The finding is robust to comfort care exclusion.
 - ICU unit random effect variance: 0.265 (glmmTMB), posterior mean 0.41
   (rstanarm) — ICU unit explains meaningful survival variation independently
   of patient severity
-- Caregiver random effect variance: ~0 — no residual caregiver-level variation
+- Caregiver random effect variance: ~0. No residual caregiver-level variation
   once unit and patient covariates are controlled
 - caregiver_fe_rate fixed effect: coef −2.80, p = 0.097 (glmmTMB); posterior
   mean −0.067, 95% CI (−0.148, 0.017), P(effect < 0) = 94.4% (rstanarm)
@@ -89,15 +88,16 @@ from 0.656 to 0.673 (p=0.010). The finding is robust to comfort care exclusion.
 **Caregiver-level partial correlation** (134 caregivers with ≥5 sample
 patients):
 
-- Global (134 caregivers): r = −0.288, p < 0.001 — but this reflects CVICU's
+- Global (134 caregivers): r = −0.288, p < 0.001, reflects CVICU's
   dominance in the caregiver sample, not a universal effect
-- **CVICU (73 caregivers): r = −0.342, p = 0.003** — the primary signal;
+- **CVICU (73 caregivers): r = −0.342, p = 0.003**, the primary signal;
   holds within the single largest unit, controlling for volume
-- MICU (30 caregivers): r = −0.298, p = 0.116 — directionally consistent,
+- MICU (30 caregivers): r = −0.298, p = 0.116, directionally consistent,
   underpowered
-- SICU (8 caregivers): r = +0.646, p = 0.117 — reversed direction; N too
+- SICU (8 caregivers): r = +0.646, p = 0.117, reversed direction; N too
   small to interpret, consistent with the Surgical/Trauma PSM null
-- Caregiver volume is not an independent predictor (r = −0.109, p = 0.211)
+- Caregiver volume is not an independent predictor (r = −0.109, p = 0.211),
+  variability in caregiver_fe_rate decreases drastically with increased volume
 - **Volume threshold sensitivity:** restricting to caregivers with ≥10 sample
   patients (N=88): r = −0.255, p = 0.017; ≥20 patients (N=52): r = −0.354,
   p = 0.011. The signal strengthens with more established caregivers, arguing
@@ -145,9 +145,9 @@ nuisance models:
 
 DML is more conservative than glmmTMB, likely because the flexible GBM nuisance
 model absorbs nonlinear confounding and because DML does not incorporate caregiver
-random effects or unit stratification. The group-stratified PSM subsequently
-showed the signal is confined to CVICU; DML's cross-unit null is consistent with
-that finding — the CVICU signal is diluted by the null Medical and Surgical/Trauma
+random effects or unit stratification. The group-stratified PSM
+shows the signal is confined to CVICU; DML's cross-unit null is consistent with
+that finding. The CVICU signal is diluted by the null Medical and Surgical/Trauma
 populations in a pooled causal estimate.
 
 **Physiological trajectory analysis** using all explicit extubation events
@@ -257,15 +257,9 @@ between units.
 
 Unit FE rates range from 1.7% (CVICU, post-cardiac-surgery patients) to 8.7%
 (Neuro Stepdown), a five-fold difference driven primarily by patient population
-rather than caregiver skill. `caregiver_fe_rate` is now computed within each
+rather than caregiver skill. `caregiver_fe_rate` is computed within each
 unit (see SQL pipeline), so CVICU caregivers are compared only to other CVICU
 caregivers, not against MICU caregivers extubating fundamentally different patients.
-
-Natural analytical groupings suggested by this breakdown:
-- **Cardiac** (CVICU + CCU): post-cardiac-surgery and acute coronary patients; low-FE, high-acuity split
-- **Medical/Mixed** (MICU + MICU/SICU): general medical ICU patients; highest FE rates
-- **Surgical/Trauma** (SICU + TSICU): surgical and trauma patients; intermediate FE rates, better survival
-- **Neuro** (Neuro Surgical ICU + Neuro Intermediate + Neuro Stepdown): small N, borderline for stratified analysis
 
 ---
 
@@ -343,13 +337,12 @@ Constructs two cohorts from `last_extubations.csv`:
 
 **`patient_cohort`** (N = 12,662) — all patients with a documented last
 extubation and complete covariates. Includes both explicit and inferred events.
-Used for population description and Table 1.
+Used for population description.
 
 **`explicit_extubations`** (N = 4,387) — restricted to explicitly documented
-procedure events with a genuine caregiver assignment (caregiver_fe_rate not
-NULL) and caregiver_n > 10. Used for all caregiver-level analyses.
+procedure events with a genuine caregiver assignment and caregiver_n > 10. Used for all caregiver-level analyses.
 
-Produces Table 1 stratified by tube event source and by FE rate quartile,
+Produces patient summary table stratified by tube event source and by FE rate quartile,
 caregiver-level summary statistics, and population visualizations. Saves
 `cohorts.RData` for downstream scripts.
 
@@ -362,8 +355,10 @@ first_careunit; centered continuous predictors.
 
 **rstanarm** (Bayesian): same structure; scaled predictors (unit variance)
 to resolve Stan initialization; weakly informative priors normal(0, 2.5) on
-fixed effects, decov(scale = 1) on random effect covariance. Runtime ~30–40
-minutes. Saves `mixed_effects_models.RData`.
+fixed effects, decov(scale = 1) on random effect covariance. Runtime ~10–30
+minutes. 
+
+Saves `mixed_effects_models.RData`.
 
 ### Script 03: PSM and Sensitivity Analysis
 
