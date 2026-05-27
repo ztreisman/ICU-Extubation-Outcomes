@@ -456,6 +456,23 @@ caregiver_stats AS (
   GROUP BY caregiver_id
 ),
 
+-- caregiver_unit_stats: per-(caregiver, unit) FE rate
+-- Allows within-unit comparison of caregivers, removing unit-level baseline
+-- differences from the FE rate. caregiver_n (global) is retained for quality
+-- filtering; caregiver_unit_n is the unit-specific denominator.
+caregiver_unit_stats AS (
+  SELECT
+    e.caregiver_id,
+    icu.first_careunit,
+    COUNT(*)                                       AS caregiver_unit_n,
+    AVG(CAST(e.failed_extubation_flag AS FLOAT64)) AS caregiver_unit_fe_rate
+  FROM extubations e
+  JOIN `physionet-data.mimiciv_3_1_icu.icustays` icu ON e.stay_id = icu.stay_id
+  WHERE e.caregiver_id IS NOT NULL
+    AND e.source = 'explicit'
+  GROUP BY e.caregiver_id, icu.first_careunit
+),
+
 overall_fe_rate_cte AS (
   SELECT
     AVG(CAST(failed_extubation_flag AS FLOAT64)) AS overall_fe_rate
@@ -634,8 +651,10 @@ final AS (
     i.source                   AS tube_event_source,
     i.caregiver_imputation_source,  -- new: tracks which tier assigned caregiver
     i.caregiver_id,
-    COALESCE(cs.caregiver_fe_rate, ofr.overall_fe_rate) AS caregiver_fe_rate,
+    -- Unit-specific rate preferred; fall back to global, then overall mean
+    COALESCE(cus.caregiver_unit_fe_rate, cs.caregiver_fe_rate, ofr.overall_fe_rate) AS caregiver_fe_rate,
     cs.n_extubations           AS caregiver_n,
+    cus.caregiver_unit_n,
     COALESCE(r.failed_extubation_count, 0) AS failed_extubations,
     m.hospital_expire_flag,
     p.dod
@@ -654,6 +673,9 @@ final AS (
   LEFT JOIN all_ccsr_codes cc                   ON i.hadm_id = cc.hadm_id
   CROSS JOIN overall_fe_rate_cte ofr
   LEFT JOIN `physionet-data.mimiciv_3_1_icu.icustays` icu ON i.stay_id = icu.stay_id
+  LEFT JOIN caregiver_unit_stats cus
+    ON i.caregiver_id = cus.caregiver_id
+   AND icu.first_careunit = cus.first_careunit
 )
 
 SELECT *
