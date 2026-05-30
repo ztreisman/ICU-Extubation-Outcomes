@@ -174,7 +174,21 @@
       "p_adj": 0.0272,
       "or_ipw": 0.656,
       "ci_ipw": [0.487, 0.879],
-      "p_ipw": 0.005
+      "p_ipw": 0.005,
+      "secondary_outcomes": [
+        {
+          "outcome": "hospital_mortality",
+          "or": 1.89,
+          "ci": [0.886, 4.282],
+          "p": 0.1091
+        },
+        {
+          "outcome": "died_30d",
+          "or": 1.688,
+          "ci": [0.672, 4.578],
+          "p": 0.2763
+        }
+      ]
     },
     "Medical": {
       "group": "Medical (MICU + MICU/SICU)",
@@ -191,7 +205,21 @@
       "p_adj": 0.6452,
       "or_ipw": 1.157,
       "ci_ipw": [0.93, 1.439],
-      "p_ipw": 0.1899
+      "p_ipw": 0.1899,
+      "secondary_outcomes": [
+        {
+          "outcome": "hospital_mortality",
+          "or": 1.085,
+          "ci": [0.734, 1.605],
+          "p": 0.6832
+        },
+        {
+          "outcome": "died_30d",
+          "or": 1.129,
+          "ci": [0.764, 1.671],
+          "p": 0.5438
+        }
+      ]
     },
     "SurgTrauma": {
       "group": "Surgical/Trauma (SICU + TSICU)",
@@ -208,8 +236,66 @@
       "p_adj": 0.4234,
       "or_ipw": 1.171,
       "ci_ipw": [0.907, 1.511],
-      "p_ipw": 0.2262
+      "p_ipw": 0.2262,
+      "secondary_outcomes": [
+        {
+          "outcome": "hospital_mortality",
+          "or": 0.557,
+          "ci": [0.321, 0.949],
+          "p": 0.0337
+        },
+        {
+          "outcome": "died_30d",
+          "or": 0.546,
+          "ci": [0.304, 0.958],
+          "p": 0.0377
+        }
+      ]
     }
+  },
+  "secondary_outcomes": {
+    "CVICU": [
+      {
+        "outcome": "hospital_mortality",
+        "or": 1.89,
+        "ci": [0.886, 4.282],
+        "p": 0.1091
+      },
+      {
+        "outcome": "died_30d",
+        "or": 1.688,
+        "ci": [0.672, 4.578],
+        "p": 0.2763
+      }
+    ],
+    "Medical": [
+      {
+        "outcome": "hospital_mortality",
+        "or": 1.085,
+        "ci": [0.734, 1.605],
+        "p": 0.6832
+      },
+      {
+        "outcome": "died_30d",
+        "or": 1.129,
+        "ci": [0.764, 1.671],
+        "p": 0.5438
+      }
+    ],
+    "SurgTrauma": [
+      {
+        "outcome": "hospital_mortality",
+        "or": 0.557,
+        "ci": [0.321, 0.949],
+        "p": 0.0337
+      },
+      {
+        "outcome": "died_30d",
+        "or": 0.546,
+        "ci": [0.304, 0.958],
+        "p": 0.0377
+      }
+    ]
   },
   "comfort_sensitivity": {
     "comfort_threshold_days": 3,
@@ -331,12 +417,12 @@
     ]
   },
   "nls_fit": {
-    "b_estimate": 0.624,
-    "b_ci_lower": 0.586,
-    "b_ci_upper": 0.658,
-    "k_estimate": 77.5,
-    "k_ci_lower": 52.7,
-    "k_ci_upper": 122.4,
+    "b_estimate": 0.623,
+    "b_ci_lower": 0.585,
+    "b_ci_upper": 0.657,
+    "k_estimate": 78.4,
+    "k_ci_lower": 53.3,
+    "k_ci_upper": 124.3,
     "n_caregivers_nonzero": 78
   },
   "mixed_effects": {
@@ -354,28 +440,28 @@
     "re_var_careunit_stan": 0.43
   },
   "partial_correlation": {
-    "global_r_fe_controlling_vol": -0.288,
-    "global_p_fe_controlling_vol": 0.0008,
-    "global_n": 134,
-    "global_r_vol_controlling_fe": -0.109,
-    "global_p_vol_controlling_fe": 0.2107,
+    "global_r_fe_controlling_vol": -0.303,
+    "global_p_fe_controlling_vol": 0.0004,
+    "global_n": 132,
+    "global_r_vol_controlling_fe": -0.122,
+    "global_p_vol_controlling_fe": 0.1645,
     "by_unit": {
       "Cardiac Vascular Intensive Care Unit (CVICU)": [
         {
           "primary_careunit": "Cardiac Vascular Intensive Care Unit (CVICU)",
           "n_caregivers": 73,
           "mean_fe_rate": 0.024,
-          "mean_survival": 0.776,
-          "r": -0.342,
+          "mean_survival": 0.778,
+          "r": -0.346,
           "p": 0.003
         }
       ],
       "Coronary Care Unit (CCU)": [
         {
           "primary_careunit": "Coronary Care Unit (CCU)",
-          "n_caregivers": 4,
+          "n_caregivers": 3,
           "mean_fe_rate": 0,
-          "mean_survival": 0.562
+          "mean_survival": 0.472
         }
       ],
       "Medical Intensive Care Unit (MICU)": [
@@ -383,9 +469,9 @@
           "primary_careunit": "Medical Intensive Care Unit (MICU)",
           "n_caregivers": 30,
           "mean_fe_rate": 0.05,
-          "mean_survival": 0.576,
-          "r": -0.298,
-          "p": 0.116
+          "mean_survival": 0.575,
+          "r": -0.273,
+          "p": 0.153
         }
       ],
       "Medical/Surgical Intensive Care Unit (MICU/SICU)": [
@@ -393,17 +479,9 @@
           "primary_careunit": "Medical/Surgical Intensive Care Unit (MICU/SICU)",
           "n_caregivers": 6,
           "mean_fe_rate": 0.082,
-          "mean_survival": 0.528,
-          "r": 0.605,
-          "p": 0.28
-        }
-      ],
-      "Neuro Surgical Intensive Care Unit (Neuro SICU)": [
-        {
-          "primary_careunit": "Neuro Surgical Intensive Care Unit (Neuro SICU)",
-          "n_caregivers": 1,
-          "mean_fe_rate": 0,
-          "mean_survival": 0.333
+          "mean_survival": 0.525,
+          "r": 0.642,
+          "p": 0.243
         }
       ],
       "Surgical Intensive Care Unit (SICU)": [
@@ -411,9 +489,9 @@
           "primary_careunit": "Surgical Intensive Care Unit (SICU)",
           "n_caregivers": 8,
           "mean_fe_rate": 0.02,
-          "mean_survival": 0.561,
-          "r": 0.646,
-          "p": 0.117
+          "mean_survival": 0.56,
+          "r": 0.648,
+          "p": 0.115
         }
       ],
       "Trauma SICU (TSICU)": [
@@ -421,9 +499,9 @@
           "primary_careunit": "Trauma SICU (TSICU)",
           "n_caregivers": 12,
           "mean_fe_rate": 0.076,
-          "mean_survival": 0.677,
-          "r": -0.211,
-          "p": 0.533
+          "mean_survival": 0.671,
+          "r": -0.224,
+          "p": 0.507
         }
       ]
     }

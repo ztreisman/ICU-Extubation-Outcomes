@@ -31,6 +31,15 @@ __pycache__/
 python/figures/
 python/models/
 
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+
+# Claude Code memory
+claude/
+
 # OS artifacts
 .DS_Store
 Thumbs.db

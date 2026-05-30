@@ -12,8 +12,10 @@
 ##
 ##  Data: explicit_extubations
 ##    One row per patient. Explicitly documented extubation events only.
-##    Caregivers with > 10 total extubations. Genuine caregiver FE rate
-##    (not imputed from overall mean).
+##    Caregivers with > 10 total extubations and a valid unit-specific
+##    denominator (caregiver_unit_n). The FE rate used here is the SQL-
+##    generated unit-stratified caregiver FE rate, with fallback to the
+##    caregiver-level and overall rates only when needed in the SQL output.
 ##
 ##  Models:
 ##    memod_freq  — frequentist mixed effects (glmmTMB)
@@ -67,6 +69,27 @@ cat("explicit_extubations N:", nrow(explicit_extubations), "\n")
 cat("Unique caregivers:", n_distinct(explicit_extubations$caregiver_id), "\n")
 cat("Unique ICU units:", n_distinct(explicit_extubations$first_careunit), "\n")
 
+## Explicit analysis dataset for Script 02.
+## This keeps the SQL-derived unit-stratified FE rate in the model and
+## drops rows where the key predictor or outcome is unavailable.
+analysis_data <- explicit_extubations %>%
+  filter(
+    !is.na(caregiver_fe_rate),
+    !is.na(caregiver_unit_n),
+    !is.na(survival_12mo),
+    !is.na(intubation_type),
+    !is.na(vent_hours_centered),
+    !is.na(charlson_centered),
+    !is.na(norepinephrine_centered),
+    !is.na(sofa_centered)
+  )
+
+cat("analysis_data N:", nrow(analysis_data), "\n")
+cat("analysis_data caregivers:", n_distinct(analysis_data$caregiver_id), "\n")
+cat("analysis_data units:", n_distinct(analysis_data$first_careunit), "\n")
+cat("analysis_data median caregiver FE rate:",
+    round(median(analysis_data$caregiver_fe_rate, na.rm = TRUE), 4), "\n")
+
 
 ## ── 2. FREQUENTIST MIXED EFFECTS MODEL (glmmTMB) ─────────────────────────────
 ##
@@ -88,7 +111,7 @@ memod_freq <- glmmTMB(
     (1 | caregiver_id) +
     (1 | first_careunit),
   family = binomial,
-  data   = explicit_extubations
+  data   = analysis_data
 )
 
 summary(memod_freq)
@@ -136,7 +159,7 @@ memod_bayes <- stan_glmer(
     (1 | caregiver_id) +
     (1 | first_careunit),
   family           = binomial,
-  data             = explicit_extubations,
+  data             = analysis_data,
   prior            = normal(0, 2.5),
   prior_covariance = decov(scale = 1),
   chains           = 4,

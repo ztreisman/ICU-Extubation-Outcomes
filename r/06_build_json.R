@@ -4,8 +4,13 @@
 library(jsonlite)
 library(dplyr)
 
+# Build the analysis objects required by this export script.
+source("01_cohort_and_descriptive.R")
+source("03_psm_and_sensitivity.R")
+
 # ── Parameters ────────────────────────────────────────────────────────────────
 comfort_threshold_days  <- 3   # death within N days of extubation = comfort case
+comfort_threshold_hours <- comfort_threshold_days * 24
 
 # ── Derived ───────────────────────────────────────────────────────────────────
 comfort_threshold_days  <- 3
@@ -93,8 +98,13 @@ analysis_outputs <- list(
     p_adj      = round(x$p_adj,  4),
     or_ipw     = round(as.numeric(x$or_ipw),  3),
     ci_ipw     = round(as.numeric(x$ci_ipw),  3),
-    p_ipw      = round(x$p_ipw,  4)
+    p_ipw      = round(x$p_ipw,  4),
+    secondary_outcomes = x$secondary_outcomes
   )),
+
+  secondary_outcomes = lapply(psm_results_list, function(x) {
+    x$secondary_outcomes
+  }),
   
   comfort_sensitivity = list(
     comfort_threshold_days  = comfort_threshold_days,

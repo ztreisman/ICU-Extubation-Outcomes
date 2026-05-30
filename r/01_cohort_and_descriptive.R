@@ -143,6 +143,21 @@ explicit_extubations <- patient_cohort %>%
     caregiver_fe_scaled     = as.numeric(scale(caregiver_fe_rate))
   )
 
+icu_units <- c(
+  "Cardiac Vascular Intensive Care Unit (CVICU)",
+  "Coronary Care Unit (CCU)",
+  "Medical/Surgical Intensive Care Unit (MICU/SICU)",
+  "Surgical Intensive Care Unit (SICU)",
+  "Neuro Surgical Intensive Care Unit",
+  "Medical Intensive Care Unit (MICU)",
+  "Trauma SICU (TSICU)",
+  "Neuro Intermediate",
+  "Neuro Stepdown"
+)
+
+explicit_extubations <- explicit_extubations %>%
+  filter(first_careunit %in% icu_units)
+
 cat("\nexplicit_extubations N:", nrow(explicit_extubations), "\n")
 cat("Unique caregivers:", n_distinct(explicit_extubations$caregiver_id), "\n")
 cat("Unique ICU units:", n_distinct(explicit_extubations$first_careunit), "\n")
@@ -200,8 +215,89 @@ tab1b <- CreateTableOne(
   factorVars = table1_cat,
   addOverall = TRUE
 )
+
 print(tab1b, showAllLevels = FALSE, smd = TRUE)
 
+## table 1c, stratified by first_careunit
+
+tab1c <- CreateTableOne(
+  vars       = table1_vars,
+  strata     = "first_careunit",
+  data       = patient_cohort,
+  factorVars = table1_cat,
+  addOverall = TRUE
+)
+print(tab1c, showAllLevels = FALSE, smd = TRUE)
+
+patient_cohort %>%
+  group_by(first_careunit) %>%
+  summarise(
+    median_vent = median(vent_hours, na.rm = TRUE),
+    q25_vent    = quantile(vent_hours, 0.25, na.rm = TRUE),
+    q75_vent    = quantile(vent_hours, 0.75, na.rm = TRUE),
+    .groups     = "drop"
+  ) %>%
+  arrange(median_vent) %>%
+  print()
+
+unit_summary <- patient_cohort %>%
+  group_by(first_careunit) %>%
+  summarise(
+    n             = n(),
+    mean_sofa     = mean(sofa, na.rm = TRUE),
+    survival_12mo = mean(survival_12mo, na.rm = TRUE),
+    .groups       = "drop"
+  ) %>%
+  filter(first_careunit %in% c(
+    "Cardiac Vascular Intensive Care Unit (CVICU)",
+    "Coronary Care Unit (CCU)",
+    "Medical/Surgical Intensive Care Unit (MICU/SICU)",
+    "Surgical Intensive Care Unit (SICU)",
+    "Neuro Surgical Intensive Care Unit (Neuro SICU)",
+    "Medical Intensive Care Unit (MICU)",
+    "Trauma SICU (TSICU)",
+    "Neuro Intermediate",
+    "Neuro Stepdown"
+  )) %>%
+  mutate(
+    label = case_when(
+      str_detect(first_careunit, "CVICU")              ~ "CVICU",
+      str_detect(first_careunit, "CCU")                ~ "CCU",
+      str_detect(first_careunit, "Medical/Surgical")   ~ "MICU/SICU",
+      str_detect(first_careunit, "Trauma")             ~ "TSICU",
+      str_detect(first_careunit, "Neuro Surgical")     ~ "Neuro SICU",      
+      str_detect(first_careunit, "Surgical Intensive") ~ "SICU",
+      str_detect(first_careunit, "Medical Intensive")  ~ "MICU",
+      str_detect(first_careunit, "Intermediate")       ~ "Neuro Intermed.",
+      str_detect(first_careunit, "Stepdown")           ~ "Neuro Stepdown",
+      TRUE ~ first_careunit
+    )
+  )
+
+ggplot(unit_summary,
+       aes(mean_sofa, survival_12mo, size = n, label = label)) +
+  geom_point(color = "#2E75B6", alpha = 0.7) +
+  geom_text(vjust = -0.5, size = 3.2, color = "gray30") +
+  scale_size_continuous(
+    range  = c(3, 14),
+    name   = "N patients",
+    breaks = c(500, 1000, 2000, 3000)
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0.25, 0.90)
+  ) +
+  scale_x_continuous(limits = c(2.5, 9.5)) +
+  labs(
+    title    = "ICU Unit Heterogeneity: Illness Severity vs. 12-Month Survival",
+    x        = "Mean SOFA Score",
+    y        = "12-Month Survival"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+ggsave("../figures/unit_sofa_survival.png",
+       width = 6, height = 3, dpi = 150)
 
 ## ── 4. CAREGIVER-LEVEL DESCRIPTIVE ───────────────────────────────────────────
 ##

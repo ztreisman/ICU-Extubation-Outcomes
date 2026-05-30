@@ -286,6 +286,7 @@ run_group_psm <- function(group_name, units, base_data) {
                 or_a, ci_a[1], ci_a[2], p_a))
 
     ## Secondary outcomes: hospital mortality and 30-day mortality
+    sec_outcomes <- list()
     for (sec_outcome in c("hospital_expire_flag", "died_30d")) {
       if (!sec_outcome %in% names(md)) next
       fit_s <- tryCatch(
@@ -298,6 +299,12 @@ run_group_psm <- function(group_name, units, base_data) {
       p_s   <- summary(fit_s)$coefficients["treated", "Pr(>|z|)"]
       lbl   <- if (sec_outcome == "hospital_expire_flag") "Hospital mortality OR:" else "30-day mortality  OR:"
       cat(sprintf("%s %.3f (%.3f-%.3f), p = %.4f\n", lbl, or_s, ci_s[1], ci_s[2], p_s))
+      sec_outcomes[[length(sec_outcomes) + 1]] <- list(
+        outcome = if (sec_outcome == "hospital_expire_flag") "hospital_mortality" else "died_30d",
+        or      = round(or_s, 3),
+        ci      = round(ci_s, 3),
+        p       = round(p_s, 4)
+      )
     }
 
     ## IPW within group
@@ -331,6 +338,7 @@ run_group_psm <- function(group_name, units, base_data) {
       or_unadj  = or_u, ci_unadj = ci_u, p_unadj = p_u,
       or_adj    = or_a, ci_adj   = ci_a, p_adj   = p_a,
       or_ipw    = or_ipw, ci_ipw = ci_ipw, p_ipw  = p_ipw,
+      secondary_outcomes = sec_outcomes,
       match_out = m_out, matched_data = md
     )
   }, error = function(e) {

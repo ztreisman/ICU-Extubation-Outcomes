@@ -77,13 +77,13 @@ from 0.656 to 0.673 (p=0.010). The finding is robust to comfort care exclusion.
 **Mixed effects logistic regression** with random intercepts for caregiver
 (271 groups) and ICU unit (12 groups):
 
-- ICU unit random effect variance: 0.265 (glmmTMB), posterior mean 0.41
+- ICU unit random effect variance: 0.271 (glmmTMB), posterior mean 0.43
   (rstanarm) — ICU unit explains meaningful survival variation independently
   of patient severity
 - Caregiver random effect variance: ~0. No residual caregiver-level variation
   once unit and patient covariates are controlled
-- caregiver_fe_rate fixed effect: coef −2.80, p = 0.097 (glmmTMB); posterior
-  mean −0.067, 95% CI (−0.148, 0.017), P(effect < 0) = 94.4% (rstanarm)
+- caregiver_fe_rate fixed effect: coef −0.554, p = 0.539 (glmmTMB); posterior
+  mean −0.022, 95% CI (−0.102, 0.059), P(effect < 0) = 70.7% (rstanarm)
 
 **Caregiver-level partial correlation** (134 caregivers with ≥5 sample
 patients):
@@ -139,7 +139,7 @@ nuisance models:
 
 - θ̂ = −0.172 (change in P(survival) per unit of FE rate), SE = 0.311, p = 0.581
 - IQR survival difference (FE rate 2.9% → 5.3%): −0.4 pp
-- Approximate log-odds equivalent: −0.977 (vs. glmmTMB fixed effect −2.80, p = 0.097)
+- Approximate log-odds equivalent: −0.977 (vs. glmmTMB fixed effect −0.554, p = 0.539)
 - Treatment R² ~0.40–0.46: confounders explain ~40% of variation in FE rate; DML
   uses the remaining unexplained variation as the identifying signal
 
@@ -463,8 +463,11 @@ Key diagnostics:
 
 Result: θ̂ = −0.172, SE = 0.311, p = 0.581. IQR effect (FE rate 2.9% → 5.3%):
 −0.4 pp. The flexible nonparametric confounder model does not find a significant
-residual effect, consistent with the overall finding that the caregiver signal
-is real but small and sensitive to modeling assumptions.
+residual effect. The global null is consistent with the R glmmTMB result
+(p = 0.539) and with the PSM finding that the signal is CVICU-specific:
+pooling all units, the CVICU signal is diluted by the null in Medical and
+Surgical/Trauma groups. The direction (θ̂ < 0) is consistent across all
+approaches.
 
 Run the full pipeline from the `python/` directory:
 
