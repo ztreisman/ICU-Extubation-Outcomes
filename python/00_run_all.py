@@ -1,12 +1,13 @@
 """
 Script 00 — Run Full Pipeline
 
-Runs scripts 02 → 03 → 04 → 05 in order, mirroring 00_run_all.R.
+Runs scripts 02 → 03 → 04 → 05 → 06 in order, mirroring 00_run_all.R.
 
 Usage (from the python/ directory):
-    python 00_run_all.py            # full pipeline
-    python 00_run_all.py --skip-shap  # skip SHAP (faster)
-    python 00_run_all.py --skip-dml   # skip DML (faster)
+    python 00_run_all.py                        # full pipeline
+    python 00_run_all.py --skip-shap            # skip SHAP (faster)
+    python 00_run_all.py --skip-dml             # skip both DML scripts
+    python 00_run_all.py --skip-shap --skip-dml # baselines + MLP only
 """
 
 import argparse
@@ -57,13 +58,20 @@ def main():
     else:
         print("\nSkipping SHAP (--skip-shap flag set).")
 
-    # ── Script 05: DML ────────────────────────────────────────────────────────
+    # ── Script 05: DML (global) ───────────────────────────────────────────────
     if not args.skip_dml:
         print("\n\n" + "─" * 60)
-        print("STEP 4/4 — Double/Debiased ML (caregiver FE rate causal effect)")
+        print("STEP 4/5 — Double/Debiased ML (global, all units)")
         print("─" * 60)
         dml_mod = import_module("05_dml_caregiver_fe")
         dml_mod.main()
+
+        # ── Script 06: DML (CVICU only) ───────────────────────────────────────
+        print("\n\n" + "─" * 60)
+        print("STEP 5/5 — Double/Debiased ML (CVICU only)")
+        print("─" * 60)
+        dml_cvicu_mod = import_module("06_dml_cvicu")
+        dml_cvicu_mod.main()
     else:
         print("\nSkipping DML (--skip-dml flag set).")
 
