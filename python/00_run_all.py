@@ -66,9 +66,9 @@ def main():
         dml_mod = import_module("05_dml_caregiver_fe")
         dml_mod.main()
 
-        # ── Script 06: DML (CVICU only) ───────────────────────────────────────
+        # ── Script 06: DML (unit-stratified) ─────────────────────────────────
         print("\n\n" + "─" * 60)
-        print("STEP 5/5 — Double/Debiased ML (CVICU only)")
+        print("STEP 5/5 — Double/Debiased ML (CVICU, Medical, Surgical/Trauma)")
         print("─" * 60)
         dml_cvicu_mod = import_module("06_dml_cvicu")
         dml_cvicu_mod.main()

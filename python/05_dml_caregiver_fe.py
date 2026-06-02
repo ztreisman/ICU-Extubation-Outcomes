@@ -1,17 +1,17 @@
 """
 Script 05 — Double/Debiased ML (DML) for Caregiver FE Rate Effect
 
-Estimates the causal effect of caregiver_fe_rate on 12-month survival using
+Estimates the causal effect of caregiver_fe_rate on 12-month mortality using
 the partially linear DML estimator (Robinson 1988, Chernozhukov et al. 2018).
 
 Structural model:
     Y = θ·D + g(W) + ε
     D = m(W) + v
 
-    Y = survival_12mo (binary, treated as continuous in the linear projection)
+    Y = mortality_12mo (binary, treated as continuous in the linear projection)
     D = caregiver_fe_rate (continuous treatment)
     W = all other patient / caregiver / unit confounders
-    θ = average partial effect of FE rate on P(survival)
+    θ = average partial effect of FE rate on P(mortality)
 
 Procedure:
     1. K-fold cross-fitting: for each held-out fold, train nuisance models on
@@ -23,9 +23,9 @@ Procedure:
 
 Nuisance models: GradientBoosting — classifier for E[Y|W], regressor for E[D|W].
 
-θ is on the probability scale (change in P(survival) per unit of caregiver_fe_rate).
-The R glmmTMB coefficient (−2.80) is on the log-odds scale; rough comparison:
-    log-odds coef × p̄(1−p̄) ≈ probability-scale effect at the mean survival rate.
+θ is on the probability scale (change in P(mortality) per unit of caregiver_fe_rate).
+The R glmmTMB coefficient is on the log-odds scale; rough comparison:
+    log-odds coef × p̄(1−p̄) ≈ probability-scale effect at the mean mortality rate.
 
 Outputs:
     figures/dml_caregiver_fe.png  — partialled-out scatter + residual distribution
@@ -174,9 +174,9 @@ def run_dml(df: pd.DataFrame, ccsr_cols: list[str]) -> dict:
 def print_results(res: dict) -> None:
     theta = res["theta"]
     print("\n" + "═" * 60)
-    print("DML — caregiver_fe_rate → 12-month survival")
+    print("DML — caregiver_fe_rate → 12-month mortality")
     print("═" * 60)
-    print(f"  θ̂   = {theta:+.4f}  (ΔP(survival) per unit of FE rate)")
+    print(f"  θ̂   = {theta:+.4f}  (ΔP(mortality) per unit of FE rate)")
     print(f"  SE   = {res['se']:.4f}")
     print(f"  95% CI: [{res['ci_lo']:+.4f}, {res['ci_hi']:+.4f}]")
     print(f"  z = {res['z']:.3f},  p = {res['p']:.4f}")
@@ -185,13 +185,12 @@ def print_results(res: dict) -> None:
     iqr_range = iqr_hi - iqr_lo
     iqr_effect = theta * iqr_range
     print(f"\n  FE rate IQR: {iqr_lo:.4f} → {iqr_hi:.4f}  (range {iqr_range:.4f})")
-    print(f"  IQR survival difference: {iqr_effect:+.3f} ({iqr_effect*100:+.1f} pp)")
+    print(f"  IQR mortality difference: {iqr_effect:+.3f} ({iqr_effect*100:+.1f} pp)")
 
     # Rough log-odds comparison: coef_logodds ≈ θ / (p̄·(1−p̄))
     p_bar = res["Y"].mean()
     logodds_approx = theta / (p_bar * (1 - p_bar))
     print(f"\n  Approximate log-odds equivalent: {logodds_approx:+.3f}")
-    print(f"  (vs. glmmTMB fixed effect: −2.80, p = 0.097)")
 
 
 # ── Figure ─────────────────────────────────────────────────────────────────────
@@ -221,7 +220,7 @@ def plot_results(res: dict) -> None:
     ax.axhline(0, color="gray", lw=0.8, ls="--")
     ax.axvline(0, color="gray", lw=0.8, ls="--")
     ax.set_xlabel("D̃  (FE rate residual after partialling out confounders)")
-    ax.set_ylabel("Ỹ  (survival residual)")
+    ax.set_ylabel("Ỹ  (mortality residual)")
     ax.set_title("Partialled-out relationship\n(binned means, size ∝ n)")
     ax.legend(fontsize=9)
 

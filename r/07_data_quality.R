@@ -1,8 +1,8 @@
 ################################################################################
 ##
-##  ICU Extubation Outcomes — Script 05: Data Quality Investigations
+##  ICU Extubation Outcomes — Script 07: Data Quality Investigations
 ##
-##  Depends on: 01_cohort_and_descriptive.R (cohorts.RData)
+##  Depends on: 01_cohort.R (cohorts.RData)
 ##
 ##  This script documents the investigation that established the correct
 ##  interpretation of the `failed_extubations` variable in last_extubations.csv.

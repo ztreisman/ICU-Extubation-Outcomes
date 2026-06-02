@@ -65,13 +65,12 @@ def load_raw(path: Path = config.LAST_EXTUBATIONS_CSV) -> pd.DataFrame:
         parse_dates=["event_time", "dod"],
         low_memory=False,
     )
-    # Derive 12-month survival: dead if dod is within 12 months of extubation
-    # Matches R's is.na(dod) for patients with no recorded death;
-    # patients who died > 12 months after extubation are also survivors.
-    df["survival_12mo"] = (
-        df["dod"].isna() |
-        ((df["dod"] - df["event_time"].dt.normalize()).dt.days > 365)
-    ).astype(int)
+    # Derive 12-month survival and mortality.
+    # dod is only recorded in MIMIC-IV for deaths within one year of
+    # hospital stay, so presence of dod is equivalent to 12-month mortality.
+    # Matches R's: mortality_12mo = 1L - as.integer(is.na(dod))
+    df["survival_12mo"] = df["dod"].isna().astype(int)
+    df["mortality_12mo"] = df["dod"].notna().astype(int)
     return df
 
 
@@ -178,14 +177,15 @@ def filter_explicit_cohort(df: pd.DataFrame) -> pd.DataFrame:
     df = df[
         (df["tube_event_source"] == "explicit") &
         (df["caregiver_fe_rate"].notna()) &
-        (df["caregiver_n"] > config.MIN_CAREGIVER_N) &
+        (df["caregiver_n"] >= config.MIN_CAREGIVER_N) &
+        (df["caregiver_unit_n"] >= config.MIN_CAREGIVER_UNIT_N) &
         (df["sofa"].notna()) &
         (df["charlson"].notna()) &
         (df["primary_diagnosis"].notna()) &
         (df["vent_hours"].notna())
     ].copy()
     print(f"\nCohort filter: {before:,} → {len(df):,} patients (explicit_extubations)")
-    print(f"  12-month survival rate: {df['survival_12mo'].mean():.3f}")
+    print(f"  12-month mortality rate: {df['mortality_12mo'].mean():.3f}")
     return df
 
 
@@ -317,7 +317,7 @@ def prepare_data() -> PreparedData:
     df = filter_explicit_cohort(df)
     df, ccsr_cols = build_ccsr_flags(df)
 
-    # ── Train / val / test split (stratified on survival_12mo) ─────────────────
+    # ── Train / val / test split (stratified on mortality_12mo) ───────────────
     df_train, df_temp = train_test_split(
         df,
         test_size=(1 - config.TRAIN_FRAC),
@@ -335,7 +335,7 @@ def prepare_data() -> PreparedData:
     print(f"\nSplit sizes — train: {len(df_train)}, val: {len(df_val)}, test: {len(df_test)}")
     for name, split in [("train", df_train), ("val", df_val), ("test", df_test)]:
         rate = split[config.TARGET].mean()
-        print(f"  {name} survival rate: {rate:.3f}")
+        print(f"  {name} mortality rate: {rate:.3f}")
 
     (
         X_train, X_val, X_test,

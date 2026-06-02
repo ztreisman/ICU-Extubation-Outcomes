@@ -19,7 +19,8 @@ CCSR_LONG_CSV        = DATA_DIR / "patient_ccsr_long.csv"  # unnested fallback
 SEED = 237  # matches set.seed(237) throughout the R pipeline
 
 # ── Cohort filters (matching explicit_extubations in 01_cohort_and_descriptive.R)
-MIN_CAREGIVER_N = 10   # caregiver_n > 10
+MIN_CAREGIVER_N      = 20   # caregiver_n >= 20 (total volume)
+MIN_CAREGIVER_UNIT_N = 20   # caregiver_unit_n >= 20 (unit-specific volume)
 
 # ── Features ──────────────────────────────────────────────────────────────────
 CONTINUOUS_FEATURES = [
@@ -42,7 +43,7 @@ CATEGORICAL_FEATURES = [
     "first_careunit",    # 12 ICU units  (analogous to random intercept in glmmTMB)
 ]
 
-TARGET = "survival_12mo"
+TARGET = "mortality_12mo"
 
 # ── CCSR binary flags ─────────────────────────────────────────────────────────
 # Threshold and exclusions match 03_psm_and_sensitivity.R

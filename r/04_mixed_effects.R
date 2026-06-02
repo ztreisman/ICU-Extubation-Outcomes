@@ -1,18 +1,18 @@
 ################################################################################
 ##
-##  ICU Extubation Outcomes — Script 02: Mixed Effects Models
+##  ICU Extubation Outcomes — Script 04: Mixed Effects Models
 ##
-##  Depends on: 01_cohort_and_descriptive.R (run first, or load cohorts.RData)
+##  Depends on: 01_cohort.R (cohorts.RData)
 ##
 ##  Research question:
-##    Does caregiver failed extubation rate predict patient 12-month survival
+##    Does caregiver failed extubation rate predict patient 12-month mortality
 ##    after accounting for patient-level illness severity and the three-level
 ##    clustering structure of the data (patients within caregivers within
 ##    ICU units)?
 ##
 ##  Data: explicit_extubations
 ##    One row per patient. Explicitly documented extubation events only.
-##    Caregivers with > 10 total extubations and a valid unit-specific
+##    Caregivers with >= 20 total extubations and a valid unit-specific
 ##    denominator (caregiver_unit_n). The FE rate used here is the SQL-
 ##    generated unit-stratified caregiver FE rate, with fallback to the
 ##    caregiver-level and overall rates only when needed in the SQL output.
@@ -76,7 +76,7 @@ analysis_data <- explicit_extubations %>%
   filter(
     !is.na(caregiver_fe_rate),
     !is.na(caregiver_unit_n),
-    !is.na(survival_12mo),
+    !is.na(mortality_12mo),
     !is.na(intubation_type),
     !is.na(vent_hours_centered),
     !is.na(charlson_centered),
@@ -94,7 +94,7 @@ cat("analysis_data median caregiver FE rate:",
 ## ── 2. FREQUENTIST MIXED EFFECTS MODEL (glmmTMB) ─────────────────────────────
 ##
 ##  Three-level structure:
-##    Level 1: patient (outcome: survival_12mo)
+##    Level 1: patient (outcome: mortality_12mo)
 ##    Level 2: caregiver_id (271 groups)
 ##    Level 3: first_careunit (12 groups)
 ##
@@ -102,7 +102,7 @@ cat("analysis_data median caregiver FE rate:",
 ##  Centering constants derived from explicit_extubations means.
 
 memod_freq <- glmmTMB(
-  survival_12mo ~ intubation_type +
+  mortality_12mo ~ intubation_type +
     vent_hours_centered +
     charlson_centered +
     norepinephrine_centered +
@@ -114,6 +114,7 @@ memod_freq <- glmmTMB(
   data   = analysis_data
 )
 
+library(rlang)
 summary(memod_freq)
 
 ## Extract key results
@@ -150,7 +151,7 @@ cat("─────────────────────────
 ##  Convergence diagnostics: all Rhat = 1.0, n_eff > 1600
 
 memod_bayes <- stan_glmer(
-  survival_12mo ~ intubation_type +
+  mortality_12mo ~ intubation_type +
     vent_hours_scaled +
     charlson_scaled +
     norepinephrine_scaled +

@@ -1,27 +1,32 @@
 """
-Script 06 — CVICU-only Double/Debiased ML
+Script 06 — Unit-Stratified DML
 
-Same cross-fit DML estimator as Script 05, restricted to
-Cardiac Vascular Intensive Care Unit (CVICU) patients.
+Runs the same cross-fit DML estimator as Script 05 (Robinson 1988,
+Chernozhukov et al. 2018), separately within each of the three primary
+ICU groups used in the R MSM analysis:
 
-Motivation: the global DML (Script 05) pools all ICU units and finds a null
-result (theta = -0.172, p = 0.581), diluted by the null Medical and
-Surgical/Trauma groups. PSM stratified by unit finds a significant signal in
-CVICU (OR = 0.581, p = 0.027; IPW OR = 0.656, p = 0.005). This script
-isolates the causal estimate using only within-CVICU variation in caregiver
-FE rate, after partialling out patient complexity within that unit.
+    CVICU           — post-cardiac surgery / cardiac medical
+    Medical         — MICU + MICU/SICU
+    Surgical/Trauma — SICU + TSICU
 
-Key differences from Script 05:
-  - Filtered to CVICU patients only (~1,536 in the analytical cohort)
-  - first_careunit excluded from the confounder matrix (zero variance in a
-    single-unit analysis; including it would add nothing)
-  - CCSR prevalence threshold reapplied to the CVICU subset (CVICU is 84%
-    circulatory, so the prevalent codes differ from the full cohort)
-  - min_samples_leaf reduced to 10 (fold training sets ~1,200 vs ~3,000
-    globally; keeps GBM from becoming too shallow)
+Motivation: the global DML (Script 05) pools all units and finds a null
+result, diluted by the null Medical and Surgical/Trauma groups. Stratified
+analysis isolates within-unit variation in caregiver FE rate, after
+partialling out patient complexity within each unit.
+
+Design differences from Script 05:
+  - Cohort restricted to caregiver_unit_n >= MIN_CAREGIVER_UNIT_N (via
+    filter_explicit_cohort in data_utils.py)
+  - first_careunit excluded from the confounder matrix for single-unit
+    groups (CVICU); included for multi-unit groups to capture residual
+    case-mix differences between sub-units
+  - CCSR prevalence threshold reapplied to each subset independently
+  - min_samples_leaf=10 (fold training sets ~640--1,150 vs ~2,700 globally)
 
 Outputs:
-  figures/dml_cvicu.png  — partialled-out scatter + residual distribution
+  figures/dml_cvicu.png
+  figures/dml_medical.png
+  figures/dml_surgical_trauma.png
 """
 
 import os
@@ -47,18 +52,43 @@ from data_utils import (
     parse_ccsr_codes,
 )
 
-CVICU_LABEL = "Cardiac Vascular Intensive Care Unit (CVICU)"
-N_FOLDS = 5
-SEED = config.SEED
+# ── Unit groups (matching R analysis_base) ─────────────────────────────────────
 
-# Exclude first_careunit — constant within CVICU, adds no information
-CATEGORICAL_CONFOUNDERS = [c for c in config.CATEGORICAL_FEATURES if c != "first_careunit"]
+UNIT_GROUPS = {
+    "CVICU": [
+        "Cardiac Vascular Intensive Care Unit (CVICU)",
+    ],
+    "Medical": [
+        "Medical Intensive Care Unit (MICU)",
+        "Medical/Surgical Intensive Care Unit (MICU/SICU)",
+    ],
+    "Surgical/Trauma": [
+        "Surgical Intensive Care Unit (SICU)",
+        "Trauma SICU (TSICU)",
+    ],
+}
+
+# Minimum caregivers in a group to attempt DML
+MIN_CAREGIVERS = 20
+
+N_FOLDS = 5
+SEED    = config.SEED
 
 
 # ── Feature preparation ────────────────────────────────────────────────────────
 
-def build_Wmat(df: pd.DataFrame, ccsr_cols: list[str]) -> tuple:
-    log_cols = {"vent_hours", "caregiver_n"}
+def build_Wmat(
+    df: pd.DataFrame,
+    ccsr_cols: list[str],
+    include_unit: bool = False,
+) -> tuple:
+    """Build confounder matrix W for DML.
+
+    include_unit: include first_careunit as a categorical confounder.
+    Set False for single-unit subsets (zero variance); True for
+    multi-unit groups where it captures residual case-mix differences.
+    """
+    log_cols  = {"vent_hours", "caregiver_n"}
     cont_conf = [f for f in config.CONTINUOUS_FEATURES if f != "caregiver_fe_rate"]
 
     cont_parts, cont_names = [], []
@@ -71,15 +101,19 @@ def build_Wmat(df: pd.DataFrame, ccsr_cols: list[str]) -> tuple:
 
     W_cont = StandardScaler().fit_transform(np.column_stack(cont_parts))
 
+    cat_features = [
+        c for c in config.CATEGORICAL_FEATURES
+        if c != "first_careunit" or include_unit
+    ]
     cat_parts, cat_names = [], []
-    for col in CATEGORICAL_CONFOUNDERS:
+    for col in cat_features:
         dummies = pd.get_dummies(
             df[col].fillna("Unknown").astype(str), prefix=col, drop_first=False
         )
         cat_parts.append(dummies.values.astype(float))
         cat_names.extend(dummies.columns.tolist())
 
-    W_ccsr = df[ccsr_cols].values.astype(float)
+    W_ccsr     = df[ccsr_cols].values.astype(float)
     ccsr_names = [f"ccsr_{c}" for c in ccsr_cols]
 
     W = np.concatenate([W_cont, W_ccsr] + cat_parts, axis=1)
@@ -91,22 +125,29 @@ def build_Wmat(df: pd.DataFrame, ccsr_cols: list[str]) -> tuple:
 
 # ── Cross-fit DML ──────────────────────────────────────────────────────────────
 
-def _gbm_outcome(**kw):
+def _gbm_outcome(min_samples_leaf: int = 10, **kw):
     return GradientBoostingClassifier(
         n_estimators=300, max_depth=4, learning_rate=0.05,
-        subsample=0.8, min_samples_leaf=10, random_state=SEED, **kw
+        subsample=0.8, min_samples_leaf=min_samples_leaf,
+        random_state=SEED, **kw,
     )
 
 
-def _gbm_treatment(**kw):
+def _gbm_treatment(min_samples_leaf: int = 10, **kw):
     return GradientBoostingRegressor(
         n_estimators=300, max_depth=4, learning_rate=0.05,
-        subsample=0.8, min_samples_leaf=10, random_state=SEED, **kw
+        subsample=0.8, min_samples_leaf=min_samples_leaf,
+        random_state=SEED, **kw,
     )
 
 
-def run_dml(df: pd.DataFrame, ccsr_cols: list[str]) -> dict:
-    W, D, feature_names = build_Wmat(df, ccsr_cols)
+def run_dml(
+    df: pd.DataFrame,
+    ccsr_cols: list[str],
+    include_unit: bool = False,
+    min_samples_leaf: int = 10,
+) -> dict:
+    W, D, feature_names = build_Wmat(df, ccsr_cols, include_unit=include_unit)
     Y = df[config.TARGET].values.astype(float)
     n = len(Y)
 
@@ -121,11 +162,11 @@ def run_dml(df: pd.DataFrame, ccsr_cols: list[str]) -> dict:
         Y_tr, D_tr = Y[tr_idx], D[tr_idx]
         Y_te, D_te = Y[te_idx], D[te_idx]
 
-        out_m = _gbm_outcome()
+        out_m = _gbm_outcome(min_samples_leaf=min_samples_leaf)
         out_m.fit(W_tr, Y_tr)
         Y_hat = out_m.predict_proba(W_te)[:, 1]
 
-        trt_m = _gbm_treatment()
+        trt_m = _gbm_treatment(min_samples_leaf=min_samples_leaf)
         trt_m.fit(W_tr, D_tr)
         D_hat = trt_m.predict(W_te)
 
@@ -138,9 +179,9 @@ def run_dml(df: pd.DataFrame, ccsr_cols: list[str]) -> dict:
 
     theta = np.dot(D_res, Y_res) / np.dot(D_res, D_res)
 
-    psi = D_res * (Y_res - theta * D_res)
+    psi   = D_res * (Y_res - theta * D_res)
     denom = np.sum(D_res ** 2)
-    se = np.sqrt(np.sum(psi ** 2) / denom ** 2)
+    se    = np.sqrt(np.sum(psi ** 2) / denom ** 2)
 
     z = theta / se
     p = 2 * (1 - stats.norm.cdf(abs(z)))
@@ -158,48 +199,46 @@ def run_dml(df: pd.DataFrame, ccsr_cols: list[str]) -> dict:
 
 # ── Results reporting ──────────────────────────────────────────────────────────
 
-def print_results(res: dict) -> None:
+def print_results(group_name: str, res: dict) -> None:
     theta = res["theta"]
     print("\n" + "═" * 60)
-    print("DML — CVICU only — caregiver_fe_rate → 12-month survival")
+    print(f"DML — {group_name} — caregiver_fe_rate → 12-month mortality")
     print("═" * 60)
     print(f"  N patients : {res['n']:,}")
-    print(f"  θ̂         = {theta:+.4f}  (ΔP(survival) per unit of FE rate)")
+    print(f"  θ̂         = {theta:+.4f}  (ΔP(mortality) per unit of FE rate)")
     print(f"  SE         = {res['se']:.4f}")
     print(f"  95% CI     : [{res['ci_lo']:+.4f}, {res['ci_hi']:+.4f}]")
     print(f"  z = {res['z']:.3f},  p = {res['p']:.4f}")
 
     iqr_lo, iqr_hi = np.percentile(res["D"], [25, 75])
-    iqr_range = iqr_hi - iqr_lo
+    iqr_range  = iqr_hi - iqr_lo
     iqr_effect = theta * iqr_range
-    print(f"\n  CVICU FE rate IQR : {iqr_lo:.4f} → {iqr_hi:.4f}  (range {iqr_range:.4f})")
-    print(f"  IQR survival diff : {iqr_effect:+.3f} ({iqr_effect*100:+.1f} pp)")
+    print(f"\n  FE rate IQR    : {iqr_lo:.4f} → {iqr_hi:.4f}  (range {iqr_range:.4f})")
+    print(f"  IQR mort. diff : {iqr_effect:+.3f} ({iqr_effect*100:+.1f} pp)")
 
     p_bar = res["Y"].mean()
     logodds_approx = theta / (p_bar * (1 - p_bar))
-    print(f"\n  Mean CVICU 12-mo survival : {p_bar:.3f}")
-    print(f"  Approx log-odds equivalent: {logodds_approx:+.3f}")
-    print(f"\n  For comparison:")
-    print(f"    Global DML (all units)  : θ̂ = -0.172, p = 0.581")
-    print(f"    CVICU PSM (OR)          : 0.581, p = 0.027")
-    print(f"    CVICU IPW (OR)          : 0.656, p = 0.005")
+    print(f"\n  Mean 12-mo mortality       : {p_bar:.3f}")
+    print(f"  Approx log-odds equivalent : {logodds_approx:+.3f}")
 
 
 # ── Figure ─────────────────────────────────────────────────────────────────────
 
-def plot_results(res: dict) -> None:
+def plot_results(group_name: str, res: dict, fname: str) -> None:
     config.FIGURES_DIR.mkdir(exist_ok=True)
     D_res, Y_res, theta = res["D_res"], res["Y_res"], res["theta"]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    fig.suptitle(f"DML — CVICU only (N = {res['n']:,})", fontsize=12)
+    fig.suptitle(
+        f"DML — {group_name}  (N = {res['n']:,})", fontsize=12
+    )
 
     # Panel 1: binned partialled-out scatter
     ax = axes[0]
     quantiles = np.linspace(0, 1, 22)
     bin_edges = np.quantile(D_res, quantiles)
-    bin_idx = np.digitize(D_res, bin_edges[1:-1])
-    n_bins = len(bin_edges) - 1
+    bin_idx   = np.digitize(D_res, bin_edges[1:-1])
+    n_bins    = len(bin_edges) - 1
 
     centers, means, counts = [], [], []
     for i in range(n_bins):
@@ -217,7 +256,7 @@ def plot_results(res: dict) -> None:
     ax.axhline(0, color="gray", lw=0.8, ls="--")
     ax.axvline(0, color="gray", lw=0.8, ls="--")
     ax.set_xlabel("D̃  (FE rate residual after partialling out confounders)")
-    ax.set_ylabel("Ỹ  (survival residual)")
+    ax.set_ylabel("Ỹ  (mortality residual)")
     ax.set_title("Partialled-out relationship\n(binned means, size ∝ n)")
     ax.legend(fontsize=9)
 
@@ -227,19 +266,23 @@ def plot_results(res: dict) -> None:
     ax.axvline(0, color="tomato", lw=1.5, ls="--")
     ax.set_xlabel("D̃  (FE rate residual)")
     ax.set_ylabel("Count")
-    ax.set_title("Treatment residual\n(within-CVICU variation unexplained by patient factors)")
+    ax.set_title(
+        f"Treatment residual\n"
+        f"(within-{group_name} variation unexplained by patient factors)"
+    )
 
     plt.tight_layout()
-    outpath = config.FIGURES_DIR / "dml_cvicu.png"
+    outpath = config.FIGURES_DIR / fname
     plt.savefig(outpath, dpi=150, bbox_inches="tight")
-    print(f"\nFigure saved to {outpath}")
+    print(f"Figure saved to {outpath}")
+    plt.close()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def main() -> dict:
     print("=" * 60)
-    print("Script 06 — CVICU-only DML")
+    print("Script 06 — Unit-Stratified DML")
     print("=" * 60)
 
     df = load_raw()
@@ -247,22 +290,64 @@ def main() -> dict:
     print(f"  Raw rows: {len(df):,}")
 
     df = parse_ccsr_codes(df)
-    df = filter_explicit_cohort(df)
+    df = filter_explicit_cohort(df)   # applies caregiver_n >= 20 and
+                                      # caregiver_unit_n >= 20
 
-    df_cvicu = df[df["first_careunit"] == CVICU_LABEL].copy()
-    print(f"\nCVICU filter: {len(df):,} → {len(df_cvicu):,} patients")
-    print(f"  12-mo survival : {df_cvicu['survival_12mo'].mean():.3f}")
-    print(f"  FE rate mean   : {df_cvicu['caregiver_fe_rate'].mean():.4f}")
-    print(f"  FE rate median : {df_cvicu['caregiver_fe_rate'].median():.4f}")
-    print(f"  Caregivers     : {df_cvicu['caregiver_id'].nunique()}")
+    results = {}
 
-    df_cvicu, ccsr_cols = build_ccsr_flags(df_cvicu)
+    for group_name, units in UNIT_GROUPS.items():
+        mask      = df["first_careunit"].isin(units)
+        df_group  = df[mask].copy()
+        n_cars    = df_group["caregiver_id"].nunique()
+        multi_unit = len(units) > 1
 
-    res = run_dml(df_cvicu, ccsr_cols)
-    print_results(res)
-    plot_results(res)
+        print(f"\n{'─'*60}")
+        print(f"Group: {group_name}")
+        print(f"  Units     : {units}")
+        print(f"  Patients  : {len(df_group):,}")
+        print(f"  Caregivers: {n_cars}")
+        print(f"  12-mo mortality: {df_group['mortality_12mo'].mean():.3f}")
+        print(f"  FE rate mean: {df_group['caregiver_fe_rate'].mean():.4f}")
+        print(f"  FE rate median: {df_group['caregiver_fe_rate'].median():.4f}")
 
-    return res
+        if n_cars < MIN_CAREGIVERS:
+            print(f"  SKIPPED — fewer than {MIN_CAREGIVERS} caregivers.")
+            continue
+
+        df_group, ccsr_cols = build_ccsr_flags(df_group)
+
+        # Scale min_samples_leaf with fold training size
+        fold_n = len(df_group) * (N_FOLDS - 1) // N_FOLDS
+        min_sl = max(5, fold_n // 120)   # ~0.8% of training fold
+
+        res = run_dml(
+            df_group,
+            ccsr_cols,
+            include_unit=multi_unit,
+            min_samples_leaf=min_sl,
+        )
+        print_results(group_name, res)
+
+        slug  = group_name.lower().replace("/", "_").replace(" ", "_")
+        plot_results(group_name, res, fname=f"dml_{slug}.png")
+
+        results[group_name] = res
+
+    # ── Summary comparison ────────────────────────────────────────────────────
+    if results:
+        print("\n" + "═" * 60)
+        print("DML SUMMARY — caregiver_fe_rate → 12-month mortality")
+        print(f"  (caregiver_unit_n ≥ {config.MIN_CAREGIVER_UNIT_N})")
+        print("═" * 60)
+        print(f"{'Group':<22}  {'N':>5}  {'θ̂':>8}  {'95% CI':^22}  {'p':>7}")
+        print("─" * 68)
+        for gname, res in results.items():
+            ci = f"[{res['ci_lo']:+.4f}, {res['ci_hi']:+.4f}]"
+            print(f"{gname:<22}  {res['n']:>5,}  "
+                  f"{res['theta']:>+8.4f}  {ci:<22}  {res['p']:>7.4f}")
+        print("═" * 60)
+
+    return results
 
 
 if __name__ == "__main__":

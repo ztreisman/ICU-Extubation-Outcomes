@@ -84,7 +84,7 @@ def train(data):
     pos_rate   = data.y_train.mean()
     pos_weight = torch.tensor([(1 - pos_rate) / pos_rate], dtype=torch.float32).to(DEVICE)
     criterion  = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    print(f"\npos_weight: {pos_weight.item():.3f}  (survival rate: {pos_rate:.3f})")
+    print(f"\npos_weight: {pos_weight.item():.3f}  (mortality rate: {pos_rate:.3f})")
 
     model = MLPWithEmbeddings(
         continuous_dim=data.cat_start_idx,

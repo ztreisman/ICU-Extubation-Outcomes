@@ -4,11 +4,12 @@
 \usepackage{amsmath}
 \usepackage{hyperref}
 \usepackage{parskip}
-\usepackage{microtype}
+\usepackage[expansion=false]{microtype}
 \usepackage{xcolor}
 \usepackage{mdframed}
 \usepackage{enumitem}
 \usepackage{graphicx}
+\usepackage{tikz}
 
 \definecolor{todocolor}{RGB}{220,240,255}
 \definecolor{todoline}{RGB}{100,160,220}
@@ -27,18 +28,15 @@
 
 \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
 
-\title{Caregiver Failed Extubation Rate and Patient Survival:\\
-\large Working Document --- May 2026}
+\title{Caregiver Failed Extubation Rate and Patient Mortality:\\
+\large Working Document --- June 2026}
 \author{Zack Treisman}
 \date{}
 
 \begin{document}
 \maketitle
 
-\noindent This is a working document summarizing analyses completed to date
-and identifying specific analyses needed to answer questions raised by Andrew
-and Ryan. Blue boxes are action items. All analyses use MIMIC-IV v3.1 (Beth
-Israel Deaconess Medical Center, 2008--2022).
+\noindent This is a working document summarizing analyses completed to date and addressing questions raised by Andrew and Ryan. Blue boxes are remaining action items. All analyses use MIMIC-IV v3.1 (Beth Israel Deaconess Medical Center, 2008--2022). The primary outcome is \textbf{12-month mortality} throughout; all results from prior versions that used 12-month survival have been converted to the mortality framing for consistency with hospital and 30-day mortality secondary endpoints.
 
 %% ──────────────────────────────────────────────────────
 \section{Cohort and Data}
@@ -68,66 +66,110 @@ InvasiveVent $\geq$4h in MIMIC-IV v3.1 & 27,729 & \\
 \midrule
 \textbf{patient\_cohort} (last extubation per patient) & \textbf{12,662} & \\
 \addlinespace
-\quad Inferred events or missing caregiver assignment & & $-8{,}280$ \\
+\quad Inferred events (no caregiver link) & & $-7{,}826$ \\
+\quad Caregiver total volume $< 20$ or non-standard unit & & $-810$ \\
 \midrule
-\textbf{explicit\_extubations} (analytical cohort) & \textbf{4,382} & \\
-\quad Unique caregivers & 271 & \\
-\quad ICU units & 9 & \\
+\textbf{explicit\_extubations} (caregiver\_n $\geq$ 20) & \textbf{4,026} & \\
+\quad Unique caregivers & 166 & \\
+\quad ICU units & 8 & \\
+\addlinespace
+\quad Caregiver unit-specific volume $< 20$ & & $-600$ \\
+\midrule
+\textbf{analysis\_base} (primary analysis cohort) & \textbf{3,426} & \\
+\quad CVICU & 1,435 & \\
+\quad Medical (MICU + MICU/SICU) & 1,001 & \\
+\quad Surgical/Trauma (SICU + TSICU) & 809 & \\
+\quad Other units (descriptive only) & 181 & \\
 \bottomrule
 \end{tabular}
-\caption{Cohort flow from all invasively ventilated patients in MIMIC-IV to
-the analytical cohort. The patient\_cohort (N=12,662) is used for descriptive
-analyses; the explicit\_extubations cohort (N=4,382) is used for all
-caregiver-level analyses. The largest single exclusion is patients with no
-computable ventilation duration ($-8{,}068$), reflecting a documentation
-alignment gap between the procedureevents and ventilation derived tables.}
+\caption{Cohort flow from all invasively ventilated patients in MIMIC-IV to the primary analysis cohort. The \texttt{patient\_cohort} ($N=12{,}662$) is used for descriptive analyses. The \texttt{explicit\_extubations} cohort ($N=4{,}026$) requires a genuine caregiver assignment and a caregiver total volume $\geq 20$. The \texttt{analysis\_base} ($N=3{,}426$) additionally requires caregiver unit-specific volume $\geq 20$, which is the denominator used to compute \texttt{caregiver\_fe\_rate}. See Table~\ref{tab:threshold} for the statistical rationale and
+caregiver-count cost at each threshold.}
 \label{tab:cohort_flow}
 \end{table}
 
 \begin{table}[h!]
 \centering
-\begin{tabular}{lrr}
+\small
+\begin{tabular}{lrrrr}
 \toprule
- & All patients & Explicit cohort  \\
+ & $n \geq 5$ & $n \geq 10$ & $n \geq 20$ & $n \geq 32$ \\
 \midrule
-N & 12,662 & 4,382 \\
-Age, mean (SD) & 62.7 (16.2) & 63.1 (15.7)  \\
-Female, \% & 40.7 & 38.5  \\
-Charlson, mean (SD) & 5.57 (3.25) & 5.45 (3.25)  \\
-SOFA, mean (SD) & 6.91 (3.86) & 6.39 (3.54)  \\
-Norepinephrine, mean (SD) & 0.17 (0.23) & 0.14 (0.19)  \\
-Vent hours, mean (SD) & 94.3 (134.1) & 64.6 (94.7)  \\
-Medical-respiratory intubation, \% & 74.7 & 64.4 \\
-Circulatory primary diagnosis, \% & 32.9 & 40.2  \\
-12-month survival, \% & 54.8 & 67.7  \\
-Hospital mortality, \% & 27.3 & 12.4  \\
+\textit{Statistical reliability (true FE rate = 5\%)} & & & & \\
+\quad $P(\text{observe 0\% FE}) = 0.95^n$ & 77.4\% & 59.9\% & 35.8\% & 19.4\% \\
+\quad $P(\text{observe} \geq 1 \text{ failure}) = 1 - 0.95^n$ & 22.6\% & 40.1\% & 64.2\% & \textbf{80.6\%} \\
+\midrule
+\textit{Eligible caregivers per unit (\texttt{caregiver\_n} $> 0$)} & & & & \\
+\quad CVICU           & 141 & 136 & 102 & 71 \\
+\quad MICU            & 107 &  87 &  47 & 33 \\
+\quad TSICU           & 102 &  89 &  48 & 31 \\
+\quad SICU            &  97 &  73 &  40 & 28 \\
+\quad MICU/SICU       &  67 &  55 &  32 & 21 \\
+\quad CCU             &  53 &  40 &  26 & 15 \\
+\quad Neuro SICU      &  25 &  17 &   4 &  0 \\
+\quad Neuro Intermed. &  19 &   9 &   1 &  0 \\
+\quad Neuro Stepdown  &  10 &   1 &   0 &  0 \\
 \bottomrule
 \end{tabular}
-\caption{Comparison of the full patient cohort (explicit + inferred extubation
-events) vs.\ the analytical cohort (explicit events with genuine caregiver
-assignment). The analytical cohort is systematically less sick: lower SOFA,
-shorter ventilation, lower mortality. Restriction to explicit events introduces
-selection bias toward patients with better-documented, shorter ICU stays.}
+\caption{Statistical reliability of the caregiver FE rate label and
+caregiver retention at each unit-specific volume threshold. Top rows:
+probability of observing zero failures (falsely appearing 0\% FE) vs.\
+at least one failure for a caregiver whose true underlying rate is 5\%.
+Bottom rows: number of eligible caregivers per unit at each threshold.
+The $n \geq 32$ threshold achieves 80\% power to detect at least one
+failure but eliminates the Neuro units and reduces the medical/surgical
+groups by 30--40\%. The analysis uses $n \geq 20$ as a practical
+compromise retaining all six primary units with $\geq 20$ caregivers each.
+Neuro units are excluded from the primary MSM analysis regardless of threshold.}
+\label{tab:threshold}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+ & All patients & \texttt{explicit\_extubations} & \texttt{analysis\_base}  \\
+\midrule
+N & 12,662 & 4,026 & 3,426 \\
+Age, mean (SD) & 62.7 (16.2) & 63.1 (15.6) & 63.3 (15.6) \\
+Female, \% & 40.7 & 38.0 & 38.0 \\
+Charlson, mean (SD) & 5.57 (3.25) & 5.46 (3.23) & 5.46 (3.23)  \\
+SOFA, mean (SD) & 6.91 (3.86) & 6.47 (3.52) & 6.34 (3.45) \\
+Norepinephrine, mean (SD) & 0.17 (0.23) & 0.15 (0.19) & 0.14 (0.19)  \\
+Vent hours, mean (SD) & 94.3 (134.1) & 64.3 (95.1) & 61.0 (91.8) \\
+Medical-respiratory intubation, \% & 74.7 & 64.3 & 64.8 \\
+Circulatory primary diagnosis, \% & 32.9 & 42.6 & 42.8 \\
+12-month mortality, \% & 45.2 & 32.1 & 30.0 \\
+Hospital mortality, \% & 27.3 & 12.0 & 11.9 \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of the full patient cohort vs.\ \texttt{explicit\_extubations}
+(explicit events with \texttt{caregiver\_n} $\geq 20$, standard ICU unit) vs.\ the primary analysis cohort \texttt{analysis\_base} (additional \texttt{caregiver\_unit\_n} $\geq 20$). The analytical cohorts are systematically less sick than the full \texttt{patient\_cohort}: lower SOFA, shorter ventilation, lower mortality, reflecting selection toward patients with better-documented, shorter ICU stays. The two analytical cohorts are similar to each other; the unit-volume threshold
+($-600$ patients) causes minimal further selection.}
 \label{tab:cohort_comparison}
 \end{table}
 
-\noindent A note on caregiver attribution: \texttt{caregiver\_id} in MIMIC-IV
-records the \emph{documenting} user, not necessarily the provider who performed
-the extubation. This is a known limitation of the dataset.
+Tables \ref{tab:cohort_flow}--\ref{tab:cohort_comparison} summarize cohort flow and characteristics. The primary analysis cohort (\texttt{analysis\_base}) includes 3,426 patients with explicit extubation events, caregiver volume $\geq 20$ at the unit level, and standard ICU unit labels. The \texttt{patient\_cohort} ($N=12{,}662$) is used for descriptive analyses of the full population of invasively ventilated patients with extubation events, including those without a caregiver link and those in non-ICU units.
 
-\noindent \textbf{Non-ICU units excluded:} Five unit labels were identified as
-non-ICU settings and excluded from the analytical cohort: PACU ($N=19$),
-generic ``Intensive Care Unit (ICU)'' ($N=12$), Surgery/Vascular/Intermediate
-($N=76$), and Medicine ($N=11$). The Surgery/Vascular and Medicine units show
-unusual profiles (50\% COVID diagnoses, vent hours $>$220h) suggesting possible
-COVID-era overflow wards rather than standard ICU admissions. Final analytical
-cohort: $N = 4{,}382$.
+When the extubation event is inferred from the ventilation record rather than explicitly documented, there is no caregiver link and the patient is excluded from the primary analysis. These patients are included in the \texttt{patient\_cohort} for descriptive purposes but not in any caregiver-level analyses. An additional complication with these patients is that vent duration is highly uncertain. Attempts to impute caregiver assignment for inferred events have not yet yielded a reliable method; this remains an open question for future work.
+
+\noindent A note on caregiver attribution: \texttt{caregiver\_id} in MIMIC-IV records the \emph{documenting} user, not necessarily the provider who performed the extubation. This is a known limitation of the dataset.
+
+\noindent \textbf{Non-ICU units excluded:} Four unit labels were identified as non-standard settings and excluded from the primary analysis: PACU ($N=19$), generic ``ICU'' ($N=12$), Surgery/Vascular/Intermediate ($N=76$, $\approx$50\% COVID diagnoses, vent hours $>$220h, likely COVID-era overflow ward), and Medicine ($N=11$). These patients are retained in patient\_cohort but not in the primary analysis cohort.
+
+\begin{todo} 
+  \textbf{TODO: CONSORT diagram:} Create a flow diagram visualizing the cohort flow from all invasively ventilated patients to the final analysis cohort, with counts and reasons for exclusion at each step.
+\end{todo}
 
 \subsection{Terminal extubation}
+\label{sec:terminal}
 
-The current analysis uses death within 3 days as the criterion,
-flagging 193 patients (4.5\% of the analytical cohort). A sensitivity analysis
-excluding these cases is reported in Section~\ref{sec:comfort}. If some other threshold is the preferred clinical criterion, the sensitivity analysis can be repeated at any threshold.
+The current analysis uses death within 3 days of extubation as the criterion for a likely comfort extubation, flagging 175 patients (4.3\% of the analytical cohort). A sensitivity analysis excluding these cases is reported in Section~\ref{sec:comfort}.
+
+\noindent \textbf{Andrew's note on code status:} Death within 3 days is a rough proxy --- it captures patients extubated with survival intent who had unexpected deterioration, not only those extubated as comfort care. A more specific marker would be a documented change in code status (DNR/DNI order) in the 24--48h preceding extubation, which is available in MIMIC-IV \texttt{chartevents}. This query has not yet been run; it is a priority for the next revision.
+
+\begin{todo}
+  \textbf{TODO: code status query:} Run a query to identify patients with a documented change in code status to DNR/DNI in the 24--48h preceding extubation. Use this to refine the comfort extubation sensitivity analysis.
+\end{todo}
 
 
 
@@ -136,8 +178,8 @@ excluding these cases is reported in Section~\ref{sec:comfort}. If some other th
 
 \begin{figure}[h!]
 \centering
-\includegraphics{../figures/unit_sofa_survival.png}
-\caption{ICU unit heterogeneity: mean SOFA score vs.\ 12-month survival.
+\includegraphics[width=0.9\textwidth]{../figures/unit_sofa_mortality.png}
+\caption{ICU unit heterogeneity: mean SOFA score vs.\ 12-month mortality.
 Bubble size proportional to patient count.}
 \label{fig:unit_sofa}
 \end{figure}
@@ -148,68 +190,86 @@ Bubble size proportional to patient count.}
 \small
 \begin{tabular}{lrrrrrr}
 \toprule
-Unit & N & Age & SOFA & Charlson & Vent h & 12-mo surv \\
+Unit & N & Age & SOFA & Charlson & Vent h & 12-mo mortality \\
  & & mean (SD) & mean (SD) & mean (SD) & median [IQR] & \% \\
 \midrule
-CVICU        & 2,585 & 66.5 (12.5) & 6.5 (3.3) & 5.4 (2.9) & 14 [6--45]   & 80.2 \\
-TSICU        & 1,854 & 58.7 (19.2) & 5.7 (3.5) & 4.3 (3.3) & 44 [15--122] & 62.5 \\
-SICU         & 1,947 & 62.7 (15.9) & 6.2 (4.0) & 5.6 (3.0) & 42 [17--123] & 53.1 \\
-MICU         & 2,915 & 61.3 (16.5) & 8.4 (4.0) & 6.0 (3.3) & 64 [23--154] & 42.0 \\
-MICU/SICU    & 1,622 & 61.8 (16.9) & 7.6 (3.8) & 6.1 (3.5) & 54 [18--142] & 41.0 \\
-CCU          & 851   & 67.6 (13.9) & 8.4 (3.5) & 7.0 (2.9) & 50 [20--114] & 37.3 \\
-Neuro SICU   & 403   & 64.7 (16.3) & 4.4 (3.0) & 5.7 (3.2) & 33 [15--82]  & 33.7 \\
-Neuro Intermed. & 265 & 58.9 (17.0) & 4.4 (2.9) & 4.9 (3.0) & 35 [17--81] & 72.5 \\
-Neuro Stepdown  & 98  & 58.6 (16.3) & 3.6 (2.2) & 4.4 (3.0) & 25 [12--66] & 71.4 \\
+CVICU        & 2,585 & 66.5 (12.5) & 6.5 (3.3) & 5.4 (2.9) & 14 [6--45]   & 19.8 \\
+TSICU        & 1,854 & 58.7 (19.2) & 5.7 (3.5) & 4.3 (3.3) & 44 [15--122] & 37.5 \\
+SICU         & 1,947 & 62.7 (15.9) & 6.2 (4.0) & 5.6 (3.0) & 42 [17--123] & 46.9 \\
+MICU         & 2,915 & 61.3 (16.5) & 8.4 (4.0) & 6.0 (3.3) & 64 [23--154] & 58.0 \\
+MICU/SICU    & 1,622 & 61.8 (16.9) & 7.6 (3.8) & 6.1 (3.5) & 54 [18--142] & 59.0 \\
+CCU          & 851   & 67.6 (13.9) & 8.4 (3.5) & 7.0 (2.9) & 50 [20--114] & 62.7 \\
+Neuro SICU   & 403   & 64.7 (16.3) & 4.4 (3.0) & 5.7 (3.2) & 33 [15--82]  & 66.3 \\
+Neuro Intermed. & 265 & 58.9 (17.0) & 4.4 (2.9) & 4.9 (3.0) & 35 [17--81] & 27.5 \\
+Neuro Stepdown  & 98  & 58.6 (16.3) & 3.6 (2.2) & 4.4 (3.0) & 25 [12--66] & 28.6 \\
 \bottomrule
 \end{tabular}
-\caption{Patient profiles by ICU unit (patient\_cohort, N=12,662; explicit +
-inferred events). Units ordered by 12-month survival. Age, SOFA, and Charlson
-reported as mean (SD); ventilation hours as median [IQR], reflecting the
-right-skewed distribution. See Table~\ref{tab:psm} for unit-specific FE rates in the analytical cohort. There is no separate CTICU label in MIMIC-IV. The cardiac surgery recovery unit appears exclusively as ``Cardiac Vascular Intensive Care Unit (CVICU).''}
+\caption{Patient profiles by ICU unit (\texttt{patient\_cohort}, N=12,662; explicit + inferred events). Units ordered by 12-month mortality (ascending). Neuro units listed last. See Table~\ref{tab:caregivers} for unit-specific FE rates in the analytical cohort. There is no separate CTICU label in MIMIC-IV. The cardiac surgery recovery unit appears exclusively as ``Cardiac Vascular Intensive Care Unit (CVICU).''}
 \label{tab:units}
 \end{table}
 
 
 \subsection{Unit clinical profiles}
 
-The nine recognized ICU units fall into four clinically distinct groups which are used for a stratified Propensity Score Matching:
+The eight recognized ICU units in the analytical cohort fall into four
+clinically distinct groups:
 
-\textbf{Post-cardiac surgery (CVICU, $N=2{,}585$).} Oldest patients (mean
-66.5y), 84\% circulatory diagnoses, short ventilation (55h mean), lowest FE
-rate (1.7\%), best survival (80\%). Extubation is a near-routine step in
-surgical recovery. This is the group where caregiver FE rate predicts survival.
+\textbf{Cardiac Vascular ICU (CVICU, $N=2{,}585$ in patient\_cohort).} Oldest patients (mean 66.5y), 84\% circulatory diagnoses, short ventilation (55h mean), lowest FE rate (1.8\%), best outcomes (13.7\% 12-month mortality in \texttt{analysis\_base}). Extubation is a near-routine step in surgical recovery.
+\textbf{Andrew's note on CVICU vs.\ CTICU:} There is no separate
+``Cardiothoracic ICU'' label in MIMIC-IV; all cardiac surgery and cardiac medical admissions appear under the single CVICU label. Among CVICU patients in the analytical cohort, 84.2\% have a circulatory primary ICD chapter and 45.2\% have medical-non-respiratory intubation type (a proxy for cardiac surgery recovery). The remainder are likely post-MI and other non-surgical cardiac events.
 
-\textbf{Medical critical care (MICU + MICU/SICU, $N=4{,}537$).} Highest SOFA
-(8.4 and 7.6), longest ventilation (118h and 111h), 88\%+ medical-respiratory
-intubation. MICU dominated by infectious (28\%) and respiratory (20\%) diagnoses;
-MICU/SICU by neoplasms (16\%), infectious (27\%), and respiratory (19\%).
-12-month survival 42\% and 41\%. No caregiver FE rate signal detected.
+\textbf{Medical critical care (MICU + MICU/SICU, $N=4{,}537$).} Highest SOFA (8.4 and 7.6), longest ventilation (118h and 111h), 88\%+ medical-respiratory intubation. MICU dominated by infectious (28\%) and respiratory (20\%) diagnoses. 12-month mortality approximately 48--56\%.
 
-\textbf{Surgical and trauma (SICU + TSICU, $N=3{,}801$).} TSICU: youngest
-(58.7y), lowest Charlson (4.3), 46\% injury/poisoning diagnoses, 63\% survival.
-SICU: more heterogeneous (17.9\% digestive, 15.5\% injury, 11.2\% neoplasms),
-53\% survival. Short-term mortality reversal observed in this group (see
-Section~\ref{sec:surg_reversal}).
+\textbf{Surgical and trauma (SICU + TSICU, $N=3{,}801$).} TSICU: youngest (58.7y), lowest Charlson (4.3), 46\% injury/poisoning diagnoses. SICU: more heterogeneous (17.9\% digestive, 15.5\% injury, 11.2\% neoplasms).
 
-\textbf{Cardiac (CCU, $N=851$).} Oldest alongside CVICU (67.6y), highest
-Charlson (7.0), highest norepinephrine use (0.25), 64\% circulatory
-diagnoses. 37\% 12-month survival despite only 40.8\% hospital mortality ---
-substantial post-discharge mortality. Excluded from stratified PSM due to
-small caregiver count in the explicit analytical cohort (4 caregivers with
-$n>10$ events), insufficient for quartile comparison.
+\textbf{Cardiac care (CCU, $N=851$).} Oldest alongside CVICU (67.6y), highest Charlson (7.0), 64\% circulatory diagnoses. 56.2\% 12-month mortality despite ``only'' 40.8\% hospital mortality --- substantial post-discharge mortality. Excluded from the primary MSM analysis due to insufficient caregiver volume with the $\geq 20$ unit-extubation threshold (2 eligible caregivers).
 
-\textbf{Neuro units ($N=766$).} Neuro SICU: 52.6\% hospital mortality despite
-low SOFA (4.4) --- neurological injury severity is poorly captured by SOFA.
-Neuro Intermediate and Stepdown have better survival (72\% and 71\%) but are
-step-down rather than full ICU settings.
+\textbf{Neuro units ($N=766$).} \textbf{Andrew's note:} The ``Neuro Surgical ICU (Neuro SICU)'' label in MIMIC-IV is used for patients with primary neurological diagnoses including both neurosurgical and medical neurology admissions (13.4\% neurologic, 18.1\% injury/poisoning, 51.4\% circulatory --- the last group perhaps representing aneurysm and AVM cases). It is not a pure neurosurgical unit. Neuro Intermediate and Stepdown have lower mortality(28\% and 25\%) and are step-down rather than full ICU settings; all three are excluded from the primary analysis due to small caregiver counts.
 
 %% ────────────────────────────────────────────────────
 \section{Caregiver Profiles}
 
-The analytical cohort includes 132 caregivers with $\geq$5 patients in
-the explicit sample, spanning 6 ICU units. 73 of 132 caregivers (55\%)
-are primarily CVICU. Table~\ref{tab:caregivers} summarizes caregiver-level
-statistics by primary unit.
+Table~\ref{tab:caregiver_flow} summarizes the caregiver cohort flow. Of
+131 unique caregivers in the primary analysis cohort, 207 caregiver--unit
+group assignments exist (CVICU + Medical + Surgical/Trauma = 102 + 52 + 53),
+meaning 76 caregivers provide care across multiple primary analysis groups
+and are counted independently within each group with their unit-specific
+FE rate.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Stage & N caregivers & Lost \\
+\midrule
+\textbf{Caregivers in \texttt{patient\_cohort}} & \textbf{570} & \\
+\quad (all have explicit events; inferred events carry no caregiver link) & & \\
+\addlinespace
+\quad Total extubation volume $< 20$ (\texttt{caregiver\_n} $< 20$) & & $-404$ \\
+\midrule
+\textbf{Caregivers with volume $\geq 20$} & \textbf{166} & \\
+\addlinespace
+\quad Unit-specific volume $< 20$ in all units & & $-32$ \\
+\midrule
+\textbf{Caregivers in \texttt{analysis\_base}} (\texttt{caregiver\_unit\_n} $\geq 20$) & \textbf{134} & \\
+\addlinespace
+\quad In ``Other'' ICU units only (CCU, Neuro, non-standard) & & $-3$ \\
+\midrule
+\textbf{Caregivers in primary analysis groups} & \textbf{131} & \\
+\quad CVICU (unit-specific) & 102 & \\
+\quad Medical (MICU + MICU/SICU, unit-specific) & 52 & \\
+\quad Surgical/Trauma (SICU + TSICU, unit-specific) & 53 & \\
+\addlinespace
+\quad \textit{Total caregiver--unit assignments} & \textit{207} & \\
+\bottomrule
+\end{tabular}
+\caption{Caregiver cohort flow. The three per-group caregiver counts
+(102 + 52 + 53 = 207) exceed the 131 unique caregivers because 76
+caregivers work across multiple primary analysis groups and are counted
+independently in each with their unit-specific FE rate.
+Caregiver profiles by primary unit are shown in Table~\ref{tab:caregivers}.}
+\label{tab:caregiver_flow}
+\end{table}
 
 \begin{table}[h!]
 \centering
@@ -218,97 +278,174 @@ statistics by primary unit.
 \toprule
  & CVICU & MICU & TSICU & SICU & MICU/SICU & CCU \\
 \midrule
-N caregivers & 73 & 30 & 12 & 8 & 6 & 3 \\
+N caregivers & 79 & 26 & 13 & 6 & 7 & 3 \\
 \addlinespace
-\textit{FE rate} & & & & & & \\
-\quad Median & 0\% & 4.4\% & 6.0\% & 1.1\% & 7.7\% & 0\% \\
-\quad IQR & 0--3\% & 2--7.5\% & 5.6--8.3\% & 0--3.3\% & 3.9--10.4\% & 0--0\% \\
-\quad Max & 25\% & 12.8\% & 17.6\% & 6.7\% & 20\% & 0\% \\
+\textit{FE rate (unit-specific)} & & & & & & \\
+\quad Median & 1.4\% & 4.5\% & 7.3\% & 2.6\% & 4.8\% & 0\% \\
+\quad IQR & 0--3.6\% & 3.2--7.7\% & 5.6--7.4\% & 0.5--3.2\% & 1.6--7.7\% & 0--2.4\% \\
+\quad Max & 11.1\% & 12.8\% & 16.0\% & 4.2\% & 10.6\% & 4.8\% \\
 \addlinespace
 \textit{Volume (total extubations)} & & & & & & \\
-\quad Median & 89 & 172 & 36 & 35 & 65 & 23 \\
-\quad IQR & 42--161 & 36--458 & 20--60 & 28--224 & 34--297 & 18--24 \\
+\quad Median & 73 & 278 & 42 & 128 & 32 & 24 \\
+\quad IQR & 39--158 & 48--480 & 34--59 & 33--232 & 24--228 & 24--24 \\
 \quad Max & 713 & 983 & 75 & 387 & 519 & 25 \\
 \addlinespace
 \textit{Patients in analytical sample} & & & & & & \\
-\quad Median & 16 & 24 & 7 & 9 & 14 & 6 \\
+\quad Median & 11 & 32 & 6 & 20 & 7 & 6 \\
 \addlinespace
-12-mo survival, mean & 77.8\% & 57.5\% & 67.1\% & 56.0\% & 52.5\% & 47.2\% \\
+12-mo mortality, mean & 13.8\% & 39.6\% & 23.5\% & 34.6\% & 42.1\% & 58.3\% \\
 \bottomrule
 \end{tabular}
-\caption{Caregiver profiles by primary ICU unit. Volume = total explicit
-extubation events in MIMIC-IV (all units, all years). Patients in analytical
-sample = patients in \texttt{explicit\_extubations} attributed to this
-caregiver. CVICU caregivers have the lowest FE rates (median 0\%) and best
-patient survival (mean 77.8\%). MICU caregivers have the highest volume
-(median 172) reflecting the larger and busier unit. CCU has only 3
-caregivers with $n\geq5$ patients in the analytical sample.}
+\caption{Caregiver profiles by primary ICU unit (\texttt{caregiver\_unit\_n} $\geq 20$, consistent with \texttt{analysis\_base}). Volume = total explicit extubation events in MIMIC-IV. CVICU has the largest number of eligible caregivers (79) despite lower individual volumes, reflecting a large cardiac surgery program. Median FE rate is 1.4\% for CVICU caregivers; most with 0\% rate are low-volume providers (see Section~\ref{sec:vol_confound}). MICU caregivers have the highest volume (median 278). CCU has only 3 caregivers meeting the threshold and is excluded from the primary MSM analysis.}
 \label{tab:caregivers}
 \end{table}
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.80\textwidth]{../figures/caregiver_vol_fe.png}
+\includegraphics[width=\textwidth]{../figures/caregiver_vol_fe.png}
 \caption{Caregiver total extubation volume vs.\ failed extubation rate.
 Bubble size = patients in analytical sample.}
 \label{fig:caregiver_vol_fe}
 \end{figure}
 
 
-%% 
-\section{Propensity Score Matching (PSM) and Inverse Probability Weighting (IPW)}
+%%
+\section{Causal Analysis: Continuous Treatment MSM}
+\label{sec:msm}
 
-The propensity score model for each unit group includes: age, sex, Charlson
-comorbidity index, first-day SOFA score, norepinephrine equivalent dose,
-ventilation hours, intubation type (surgical / medical-respiratory /
-medical-non-respiratory), and 21 binary diagnosis flags derived from ICD-10
-categories. MIMIC-IV does not include a pre-computed APACHE score.
+\subsection{Why we moved away from binary PSM}
 
-Figure~\ref{fig:love_cvicu} shows covariate balance before and after
-matching in the CVICU group. All standardized mean differences fall
-below 0.10 after matching.
+The original analysis compared patients of top-quartile FE rate caregivers
+(Q4) to bottom-quartile (Q1) caregivers. Andrew's review identified two
+fundamental problems.
 
-\begin{figure}[h]
+\textbf{The 0\%-FE stratum is driven by low volume.} In CVICU, the bottom
+quartile consists entirely of caregivers who have had zero failed extubations
+in their career (Q25 = 0\% at this unit). A characterization analysis
+(Figure~\ref{fig:cvicu_strata}) reveals that this group is dominated by
+\emph{low-volume} providers who have not accumulated enough extubations to
+have had a failure yet. Among the 73 CVICU caregivers with a 0\% FE rate,
+the median number of patients in the analytical sample is just 4 [IQR 2--6].
+By contrast, providers with non-zero FE rates have median analytical-sample
+volumes of 16--22 patients. The probability of observing zero failures by
+chance (assuming a true underlying rate of 5\%) is $(0.95)^4 \approx 81\%$
+with four observations. The 0\%-FE label is largely statistical noise for
+these low-volume providers.
+\label{sec:vol_confound}
+
+\textbf{The propensity score has a weak conceptual basis here.} The
+propensity score models $P(\text{assigned to high-FE caregiver} \mid
+\text{patient covariates})$. As Andrew correctly noted, within an ICU,
+patient-to-caregiver assignment is largely determined by staffing rosters,
+not patient characteristics. Our analysis confirms this empirically: patient
+covariates explain only 4--7\% of variance in caregiver FE rate in all three
+unit groups (denominator $R^2 = 0.057$, $0.042$, $0.069$ for CVICU, Medical,
+and Surgical/Trauma). The IPW weights are therefore close to 1 for most
+patients, meaning the weighting is performing almost no confound correction.
+This is consistent with near-random assignment.
+
+\subsection{Method: stabilized density weights}
+
+We replaced the binary PSM with a marginal structural model (MSM) for
+continuous treatment (Robins et al.\ 2000; Hern{\'a}n \& Robins 2020,
+\S12). The exposure is \texttt{caregiver\_fe\_rate} as a continuous variable;
+all patients are included regardless of their caregiver's quartile. Stabilized
+Hirano--Imbens density weights are:
+\[
+sw_i = \frac{f(T_i)}{f(T_i \mid X_i)}
+\]
+where $T = \texttt{caregiver\_fe\_rate}$, $X$ = patient covariates (age, sex,
+Charlson, SOFA, norepinephrine, ventilation hours, intubation type, 21
+CCSR diagnosis flags), and $f$ denotes a probability density function (PDF).
+$f(T_i)$ is the \emph{marginal} density of the treatment evaluated at patient
+$i$'s observed FE rate; $f(T_i \mid X_i)$ is the \emph{conditional} density
+of treatment given patient covariates. Both are estimated as normal densities
+from OLS: fitting $T_i = \alpha + X_i\beta + \varepsilon_i$ gives conditional
+fitted values $\hat{T}_i$ and residual variance $\hat{\sigma}^2_{T|X}$, so
+\[
+f(T_i \mid X_i) = \frac{\phi\!\left(\dfrac{T_i - \hat{T}_i}{\hat{\sigma}_{T|X}}\right)}{\hat{\sigma}_{T|X}},
+\qquad
+f(T_i) = \frac{\phi\!\left(\dfrac{T_i - \bar{T}}{\hat{\sigma}_T}\right)}{\hat{\sigma}_T},
+\]
+where $\phi$ is the standard normal PDF and $\bar{T}$, $\hat{\sigma}_T$ are
+the marginal mean and standard deviation of $T$. The ratio upweights patients
+whose observed FE rate was unlikely given their covariates and downweights
+those for whom it was expected, recreating a pseudo-population in which
+covariates are balanced across FE rate levels. Weights are trimmed at the
+99th percentile.
+Primary inference uses cluster-robust standard errors by
+\texttt{caregiver\_id}. The effect size is reported as the odds ratio per
+5 percentage-point increase in caregiver FE rate (approximately the CVICU
+IQR).
+
+\begin{figure}[h!]
 \centering
-\includegraphics[width=0.75\textwidth]{../figures/psm_love_cvicu.png}
-\caption{Covariate balance before and after PSM --- CVICU.}
-\label{fig:love_cvicu}
+\includegraphics[width=0.75\textwidth]{../figures/msm_balance_cvicu.png}
+\caption{MSM covariate balance --- CVICU. Pearson correlation of each
+covariate with caregiver FE rate before (orange) and after (teal) IPW
+weighting. Dashed lines = $\pm 0.10$ threshold. All covariates fall within
+the threshold after weighting.}
+\label{fig:msm_balance}
 \end{figure}
 
-The analysis compares patients of top-quartile FE rate caregivers to
-bottom-quartile FE rate caregivers, within each unit group. For PSM the matching is
-1:1 nearest-neighbor within a 0.2 SD caliper on the logit propensity score,
-with exact matching on unit within multi-unit groups. IPW uses the
-Average Treatment Effect (ATE) estimand as a sensitivity check. In this context the "treatment" is being a patient of a high-FE-rate caregiver vs a low-FE-rate caregiver. The ATE answers: if we randomly assigned every patient in the population to either a high-FE or low-FE caregiver, what would the average difference in survival be?
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.75\textwidth]{../figures/msm_balance_medical__micu___micu_sicu_.png}
+\caption{MSM covariate balance --- Medical (MICU + MICU/SICU). Pearson
+correlation of each covariate with caregiver FE rate before (orange) and
+after (teal) IPW weighting. Dashed lines = $\pm 0.10$ threshold.}
+\label{fig:msm_balance_medical}
+\end{figure}
 
-\begin{table}[h]
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.75\textwidth]{../figures/msm_balance_surgical_trauma__sicu___tsicu_.png}
+\caption{MSM covariate balance --- Surgical/Trauma (SICU + TSICU). Pearson
+correlation of each covariate with caregiver FE rate before (orange) and
+after (teal) IPW weighting. Dashed lines = $\pm 0.10$ threshold.}
+\label{fig:msm_balance_surgical}
+\end{figure}
+
+\subsection{Results}
+
+\begin{table}[h!]
 \centering
 \begin{tabular}{lrrrrrr}
 \toprule
-Group & N matched & Surv  	& Surv  	& PSM OR (adj) & $p$ & IPW OR \\
-	&	&(high FE)	& (low FE)	&		&	&\\
+Group & N & Caregivers & Denom $R^2$ & OR per 5pp & 95\% CI & $p$ \\
 \midrule
-CVICU           & 797 & 84.4\% & 90.1\% & 0.581 (0.356--0.937) & 0.027 & 0.656 \\
-Medical         & 607 & 49.4\% & 49.2\% & 1.091 (0.754--1.584) & 0.645 & 1.157 \\
-Surgical/Trauma & 524 & 72.9\% & 68.2\% & 1.202 (0.767--1.889) & 0.423 & 1.171 \\
+CVICU           & 1,435 & 102 & 0.057 & 1.432 & 0.931--2.200 & 0.102 \\
+Medical         & 1,001 &  52 & 0.042 & 0.898 & 0.750--1.074 & 0.239 \\
+Surgical/Trauma &   809 &  53 & 0.069 & 0.893 & 0.627--1.270 & 0.529 \\
 \bottomrule
 \end{tabular}
-\caption{PSM and IPW results by unit group. The odds ratio (OR) is the
-ratio of the odds of 12-month survival for patients of high-FE-rate
-caregivers vs.\ low-FE-rate caregivers. OR $<$ 1 indicates better survival
-for patients of low-FE-rate caregivers.}
-\label{tab:psm}
+\caption{MSM results by unit group. Outcome: 12-month mortality. OR $>1$
+indicates higher mortality for patients of higher-FE-rate caregivers. Denom
+$R^2$ = variance in caregiver FE rate explained by patient covariates in the
+denominator model; low values confirm near-random caregiver assignment.
+Cluster-robust SEs by \texttt{caregiver\_id}.}
+\label{tab:msm}
 \end{table}
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.8\textwidth]{../figures/psm_forest.png}
-\caption{Propensity Score Matching by ICU group for 12 month survival as a function of caregiver FE rate.}
-\label{fig:psm_forest}
+\includegraphics[width=0.8\textwidth]{../figures/msm_forest.png}
+\caption{MSM results by ICU group: 12-month mortality odds ratio per 5
+percentage-point increase in caregiver FE rate. OR $>1$ = more deaths with
+higher FE rate. All groups are null ($p > 0.05$). Cluster-robust SEs by
+caregiver.}
+\label{fig:msm_forest}
 \end{figure}
 
-\subsection{Secondary outcomes}
+\noindent The CVICU point estimate (OR = 1.432) is directionally consistent
+with the prior PSM finding (OR = 1.72 on the mortality scale), but does not
+reach significance ($p = 0.102$). The denominator $R^2 = 0.057$ confirms that
+patient covariates explain very little of caregiver FE rate variance, and the
+effective sample size after weighting (1,392 of 1,435) shows the weights are
+barely adjusting for confounding. Medical and Surgical/Trauma are null across
+all methods.
 
+\subsection{Secondary outcomes}
 
 \begin{table}[h!]
 \centering
@@ -316,105 +453,157 @@ for patients of low-FE-rate caregivers.}
 \toprule
 Group & Hosp.\ mortality OR & $p$ & 30-day mortality OR & $p$ \\
 \midrule
-CVICU & 1.89 (0.89--4.28) & 0.109 & 1.69 (0.67--4.58) & 0.276 \\
-Medical & 1.09 (0.73--1.61) & 0.683 & 1.13 (0.76--1.67) & 0.544 \\
-Surgical/Trauma & 0.557 (0.321--0.949) & 0.034 & 0.546 (0.304--0.958) & 0.038 \\
+CVICU & 1.408 (0.712--2.783) & 0.325 & 2.144 (0.788--5.829) & 0.135 \\
+Medical & 1.120 (0.917--1.367) & 0.267 & 1.029 (0.807--1.313) & 0.817 \\
+Surgical/Trauma & 0.856 (0.530--1.381) & 0.523 & 0.960 (0.636--1.447) & 0.844 \\
 \bottomrule
 \end{tabular}
-\caption{Secondary outcomes (mortality endpoints).}
+\caption{Secondary mortality outcomes by ICU group. OR $>1$ = more deaths
+with higher FE rate. All three mortality endpoints are now in the same
+direction (OR $>1$ = worse); CVICU shows a consistent positive direction
+across all three endpoints but does not reach significance at any. The
+Surgical/Trauma 30-day signal seen in the prior PSM analysis does not
+survive in the MSM.}
 \label{tab:secondary}
 \end{table}
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.8\textwidth]{../figures/psm_secondary_forest.png}
-\caption{Propensity Score Matching by ICU group for hospital and 30-day mortality as a function of caregiver FE rate.}
-\label{fig:psm_secondary_forest}
+\includegraphics[width=0.8\textwidth]{../figures/msm_secondary_forest.png}
+\caption{MSM secondary outcomes by ICU group: hospital and 30-day mortality.
+OR $>1$ = more deaths with higher FE rate. All results are non-significant.}
+\label{fig:msm_secondary_forest}
 \end{figure}
-
-These secondary endpoints are mortality outcomes rather than survival outcomes. This means the direction of the
-odds ratio is reversed here: an OR $>1$ means higher mortality for patients
-of high-FE-rate caregivers, whereas the survival table uses OR $<1$ to mean
-better survival for low-FE-rate caregivers. CVICU: no acute mortality
-signal despite a 12-month survival effect. Surgical/Trauma: short-term
-mortality is lower in the high-FE-rate group. \label{sec:surg_reversal}
-
-\begin{todo}
-\textbf{TODO - survival $\to$ mortality} Redo the analysis with 12 month mortality so that the three outcomes match direction. 
-\end{todo}
-
-\subsection{Tracheostomy trajectory (Surgical/Trauma)}
-
-Of 169 failed extubations in SICU/TSICU, only 3 (1.8\%) led to tracheostomy within
-30 days. The tracheostomy pathway does not explain the short-term
-mortality reversal in this group. The reversal remains unexplained
-and is noted as a limitation.
 
 \subsection{Comfort extubation sensitivity}
 \label{sec:comfort}
 
-Excluding likely comfort extubations (in-hospital death within 3 days of
-extubation; $N = 11$ in CVICU, 0.7\% of the CVICU group):
+Excluding likely comfort extubations (in-hospital death within 3 days;
+$N = 10$ in CVICU, 0.7\%):
 
 \begin{center}
-\begin{tabular}{lrrrr}
+\begin{tabular}{lrr}
 \toprule
-& PSM OR & $p$ & IPW OR & $p$ \\
+& MSM OR per 5pp & $p$ \\
 \midrule
-CVICU (all) & 0.581 & 0.027 & 0.656 & 0.005 \\
-CVICU (comfort excluded) & 0.619 & 0.055 & 0.673 & 0.010 \\
+CVICU (all) & 1.432 & 0.102 \\
+CVICU (comfort excluded) & 1.398 & 0.122 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent The CVICU signal is not driven by comfort-care confounding.
+\noindent The CVICU direction is stable and the result is not driven by
+comfort-care confounding.
 
-\subsection{Volume threshold sensitivity}
+\subsection{Volume confounding and the 0\%-FE stratum}
+\label{sec:vol_confound_detail}
 
-Restricting to caregivers with more patients in the analytical sample:
+The caregiver characterization analysis (Table~\ref{tab:cvicu_strata})
+explains why the 0\%-FE stratum shows better patient outcomes.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+FE rate stratum & N (pts) & N (caregivers) & Med vol & Max vol & Vent h (med) & Mortality \\
+\midrule
+0\% (exact) & 313 & 36 & 6 [4--10] & 45 & 8 [5--19] & 9.9\% \\
+$>$0--median (1.96\%) & 569 & 22 & 16 [9--26] & 149 & 6 [4--19] & 13.7\% \\
+median--Q75 (2.99\%) & 273 & 14 & 16 [12--22] & 56 & 12 [5--37] & 15.8\% \\
+$>$Q75 & 280 & 30 & 8 [4--12] & 29 & 15 [5--36] & 15.7\% \\
+\bottomrule
+\end{tabular}
+\caption{CVICU patient and caregiver characteristics by FE rate stratum
+(\texttt{analysis\_base}, \texttt{caregiver\_unit\_n} $\geq 20$). Med vol = median patients in
+analytical sample per caregiver [IQR]. The 0\%-FE stratum has the lowest
+caregiver volumes and the shortest ventilation times --- both consistent with
+a simpler case mix --- rather than any identifiable superiority in extubation
+skill. SOFA, Charlson, and age are similar across all strata.}
+\label{tab:cvicu_strata}
+\end{table}
+
+\noindent The 0\%-FE caregivers have median volume of 6 patients [IQR 4--10]
+in the analytical sample, and their patients have shorter ventilation times
+(8h median) than all other strata. This profile is consistent with occasional-coverage providers seeing
+straightforward post-surgical cases who are easy to extubate. The caregiver
+volume and case mix, not the FE rate per se, likely explain the mortality
+difference in this stratum.
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.85\textwidth]{../figures/cvicu_strata_covariates.png}
+\caption{CVICU patient characteristics by caregiver FE rate stratum. SOFA,
+age, and Charlson are similar across strata. Ventilation hours increase
+monotonically with FE rate, consistent with higher FE rate caregivers
+managing more complex, longer-ventilated patients. Log scale on vent hours.}
+\label{fig:cvicu_strata}
+\end{figure}
+
+\subsection{Caregiver-level partial correlations}
+
+At the caregiver level (one observation per caregiver, outcome = mean
+12-month patient mortality), the partial correlation between FE rate and
+mortality controlling for caregiver volume is:
 
 \begin{center}
 \begin{tabular}{lrrr}
 \toprule
-Min.\ sample patients & N caregivers & $r$ (FE rate $\sim$ survival) & $p$ \\
+Cohort & N caregivers & $r$ (FE rate $\sim$ mortality) & $p$ \\
 \midrule
-$\geq 5$ & 134 & $-0.288$ & $<0.001$ \\
-$\geq 10$ & 88 & $-0.255$ & 0.017 \\
-$\geq 20$ & 52 & $-0.354$ & 0.011 \\
+analysis\_base (caregiver\_unit\_n $\geq 20$) & 134 & $+0.216$ & 0.012 \\
+$+$ analytic patients $\geq 10$ & 70 & $+0.432$ & $<0.001$ \\
+$+$ analytic patients $\geq 20$ & 42 & $+0.485$ & 0.001 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Partial correlation (FE rate $\sim$ 12-month survival, controlling
-for caregiver volume) strengthens with higher volume thresholds. Volume alone
-does not predict survival once FE rate is controlled ($r = -0.109$, $p = 0.211$).
+\noindent The positive sign confirms the direction: higher FE rate caregivers
+have patients with worse mortality, controlling for caregiver volume. The
+association strengthens when restricted to caregivers with larger analytical
+samples, suggesting it is not noise from small denominators. Volume also
+carries independent signal when controlling for FE rate ($r = +0.282$,
+$p = 0.001$).
 
-\section{Functional form: survival floor}
+\noindent The CVICU unit-stratified partial correlation is $r = +0.261$,
+$p = 0.021$ ($N = 79$ caregivers) --- again specific to CVICU, consistent
+with all patient-level analyses.
 
-Fitting $P(\text{survival}) = b + (1-b)\,e^{-k \cdot \text{FE rate}}$ at the
-caregiver level ($N = 78$ caregivers with FE rate $> 0$):
+\section{Functional form: mortality ceiling}
+
+Fitting $P(\text{mortality}) = m_{\max}\,(1 - e^{-k \cdot \text{FE rate}})$
+at the caregiver level ($N = 90$ caregivers with FE rate $> 0$). This is
+reparametrized from the equivalent survival floor form: $m_{\max} = 1 - b$
+where $b$ is the survival floor. The mortality ceiling $m_{\max}$ represents
+the maximum achievable 12-month mortality as FE rate $\to \infty$ ---
+equivalently, the fraction of outcomes potentially sensitive to caregiver
+extubation practice.
 
 \begin{center}
 \begin{tabular}{lrr}
 \toprule
 Parameter & Estimate & 95\% CI \\
 \midrule
-$b$ (survival floor) & 0.624 & 0.586--0.658 \\
-$k$ (decay rate) & 77.5 & 52.7--122.4 \\
+$m_{\max}$ (mortality ceiling) & 0.357 & 0.321--0.397 \\
+$k$ (rate of increase) & 76.4 & 50.8--124.0 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Approximately 62\% of patients in this cohort survive 12 months
-regardless of caregiver FE rate. The remaining 38\% represent outcomes
-potentially sensitive to caregiver extubation practice. The decay is steep:
-most of the survival difference occurs in the 0--8\% FE rate range.
+\noindent Approximately 36\% of outcomes in this cohort are potentially
+sensitive to caregiver FE rate; 64\% of patients reach their 12-month
+outcome regardless of caregiver practice. The CVICU-specific model gives
+$m_{\max} = 0.318$ (95\% CI 0.263--0.398), consistent with CVICU's overall
+lower mortality. The increase is steep: most of the mortality difference occurs
+in the 0--8\% FE rate range.
 
 \begin{figure}[h!]
 \centering
 \includegraphics[width=0.8\textwidth]{../figures/nls_stratified.png}
-\caption{Caregiver rates and 12-month survival}
-\label{fig:survival_floor}
+\caption{Caregiver FE rate vs.\ 12-month mortality at the caregiver level.
+Asymptotic exponential fits: global (cross-unit, $N=90$) and CVICU-only
+($N=44$). Mortality ceiling $m_{\max}$ = 0.357 globally, 0.318 for CVICU.}
+\label{fig:mortality_ceiling}
 \end{figure}
 
 %% ───────────────────────────────────────────────────
@@ -423,22 +612,24 @@ most of the survival difference occurs in the 0--8\% FE rate range.
 \begin{center}
 \begin{tabular}{lrrrr}
 \toprule
-Model & Estimate & 95\% CI & $p$ / P($<$0) \\
+Model & Estimate & 95\% CI & $p$ / P($>$0) \\
 \midrule
-glmmTMB (caregiver\_fe\_rate) & $-0.554$ & -- & $p = 0.539$ \\
-rstanarm (caregiver\_fe\_scaled) & $-0.022$ & ($-0.102$, $0.059$) & 70.7\% \\
+glmmTMB (caregiver\_fe\_rate, log-odds) & $+0.460$ & -- & $p = 0.660$ \\
+rstanarm (caregiver\_fe\_scaled, posterior) & $+0.017$ & ($-0.071$, $0.103$) & 64.6\% \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \noindent Random effect variances: caregiver\_id $\approx 0$ (both models);
-first\_careunit = 0.271 (glmmTMB), posterior mean 0.43 (rstanarm).
-
-The global mixed effects model is null ($p = 0.539$, P($<0$) = 70.7\%).
-The unit-level random effect absorbs the survival differences across units,
-leaving the caregiver FE rate fixed effect with nothing to explain at the
-global level. This is consistent with the PSM finding that the signal is
-CVICU-specific.
+first\_careunit = 0.295 (glmmTMB), posterior mean 0.501 (rstanarm). The
+unit-level random effect absorbs mortality differences across units, leaving
+the caregiver FE rate fixed effect with no global signal to explain. This is
+consistent with all other analyses showing the signal (to the extent it
+exists) is CVICU-specific, not global. The near-zero caregiver-level random
+effect variance is also consistent with the low denominator $R^2$ values in
+the MSM: patients are not systematically routed to high-FE caregivers based
+on their covariates, and caregiver-level clustering explains little variance
+in outcomes once unit is accounted for.
 
 \section{Deep Learning Models}
 
@@ -454,23 +645,24 @@ interactions.
 \subsection{Predictive performance}
 
 \begin{center}
-\begin{tabular}{lrr}
+\begin{tabular}{lrrr}
 \toprule
-Model & AUC-ROC & AUC-PR \\
+Model & AUC-ROC & AUC-PR & Brier \\
 \midrule
-Logistic regression & 0.806 & 0.935 \\
-Gradient boosting   & 0.828 & 0.943 \\
-MLP (val, best ep.\ 16) & $\approx$0.825 & --- \\
+Logistic regression (test) & 0.829 & 0.663 & 0.149 \\
+Gradient boosting (test)   & 0.852 & 0.674 & 0.141 \\
+MLP (test, best ep.\ 16)   & 0.841 & 0.670 & 0.166 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent The MLP matches gradient boosting closely (val AUC $\approx$0.825 at
-early-stopping epoch 16), indicating no deep nonlinear structure beyond what
-the tree ensemble already captures at this sample size ($N \approx 4{,}300$).
-All models substantially outperform the survival-rate baseline (0.77 precision
-at zero recall), consistent with the R regression models showing that SOFA,
-Charlson, and ICU unit predict outcomes well.
+\noindent The MLP matches gradient boosting closely (test AUC 0.841 vs.\ 0.852
+at early-stopping epoch 16), indicating no deep nonlinear structure beyond what
+the tree ensemble already captures at this sample size ($N = 3{,}437$).
+All models substantially outperform the mortality-rate baseline
+(AUC-PR $\approx 0.30$ for a random classifier at 30\% prevalence), consistent
+with the R regression models showing that SOFA, Charlson, and ICU unit predict
+outcomes well.
 
 \subsection{SHAP feature importance}
 
@@ -484,59 +676,90 @@ patients, KernelExplainer). Features are ordered by global importance.}
 
 The SHAP ranking (Figure~\ref{fig:shap_bar}) is consistent with the R
 analyses. Charlson comorbidity index is the dominant predictor by a wide
-margin; \texttt{first\_careunit} (ICU unit embedding) ranks second --- confirming
-that unit-level case-mix differences are the primary driver of survival
-heterogeneity. Clinical severity variables (primary diagnosis, SOFA, age,
-ventilation hours) follow. Caregiver FE rate ranks 10th out of 20, with a
-negative direction in the SHAP dependence plot: higher FE rate pushes
-predicted survival downward, consistent with the R PSM result. Its modest
-rank relative to Charlson and unit reflects the same phenomenon observed in
-the mixed-effects models --- FE rate carries real signal within units but is
-dominated at the global level by case-mix confounding.
+margin; SOFA ranks second and \texttt{first\_careunit} (ICU unit embedding)
+ranks third --- confirming that illness severity and unit-level case-mix
+differences are the primary drivers of mortality heterogeneity. Ventilation
+hours, primary diagnosis, and age follow. Caregiver FE rate ranks 8th out of
+36 features, with a positive direction in the SHAP dependence plot (higher FE
+rate pushes predicted mortality upward), consistent with all R analyses. Its
+modest rank relative to Charlson and unit reflects the same finding as the
+mixed-effects and MSM models: FE rate carries directionally consistent signal
+within units but is dominated globally by patient severity and case-mix.
 
 \subsection{Double/Debiased ML (DML)}
+\label{sec:dml}
 
 The partially linear DML estimator (Chernozhukov et al.\ 2018) uses 5-fold
-cross-fitting with GBM nuisance models to partial out all measured confounders,
-then regresses the survival residual on the FE rate residual:
+cross-fitting with GBM nuisance models to partial out all measured confounders
+from both the outcome and the treatment, then estimates $\hat{\theta}$ by
+regressing the mortality residual on the FE rate residual. The estimand is
+$\Delta P(\text{mortality})$ per unit of FE rate. The analysis has been
+rerun on the updated cohort (\texttt{caregiver\_unit\_n} $\geq 20$, outcome =
+12-month mortality as defined in the Python pipeline; see note below on
+the mortality definition) stratified by ICU group, matching the R MSM
+analysis.
 
-\begin{center}
-\begin{tabular}{lrrrr}
+\begin{table}[h!]
+\centering
+\begin{tabular}{lrrrrr}
 \toprule
-Estimator & $\hat{\theta}$ & 95\% CI & $p$ \\
+Group & N & $\hat{\theta}$ & 95\% CI & $p$ & IQR effect \\
 \midrule
-DML (global, all units) & $-0.172$ & --- & $0.581$ \\
-glmmTMB (global mixed effects) & $-0.554$ (log-odds) & --- & $0.539$ \\
+CVICU           & 1,435 & $+1.062$ & $[-0.550,\,+2.673]$ & 0.197 & $+2.3$ pp \\
+Medical         & 1,001 & $-0.542$ & $[-1.980,\,+0.896]$ & 0.460 & $-2.2$ pp \\
+Surgical/Trauma &   809 & $-0.696$ & $[-2.163,\,+0.771]$ & 0.352 & $-2.2$ pp \\
+\midrule
+Global (\texttt{explicit\_extubations}) & 3,437 & $-0.333$ & $[-1.010,\,+0.344]$ & 0.335 & $-1.4$ pp \\
 \bottomrule
 \end{tabular}
-\end{center}
-
-\noindent The DML $\hat{\theta}$ is on the probability scale: a one-unit
-increase in FE rate (0$\to$1, a theoretical maximum) would reduce
-$P(\text{survival})$ by 17.2 percentage points. Over the observed IQR
-($\approx$5.5 pp of FE rate), the implied survival difference is $<$1 pp ---
-small and not significant ($p = 0.581$). This global null is consistent with
-the R glmmTMB result ($p = 0.539$) and with the PSM finding that the signal is
-CVICU-specific: pooling all units, the negative effect in CVICU is diluted by
-the null in Medical and Surgical/Trauma groups.
+\caption{DML results. Unit-stratified rows use \texttt{caregiver\_unit\_n} $\geq 20$
+($N = 3{,}245$ primary-group patients). Global row uses \texttt{explicit\_extubations}
+($N = 3{,}437$; \texttt{caregiver\_n} $\geq 20$, all units). IQR effect =
+$\hat{\theta} \times$ IQR of \texttt{caregiver\_fe\_rate} within the group.
+All estimates are null. CVICU is directionally positive (higher FE rate
+$\to$ higher mortality), consistent with the MSM and the caregiver-level
+partial correlation. Medical, Surgical/Trauma, and Global are
+directionally negative but also null.
+Overall cohort mortality rate 30.1\% matches the R analysis.}
+\label{tab:dml}
+\end{table}
 
 \begin{figure}[h!]
 \centering
-\includegraphics[width=0.80\textwidth]{../python/figures/dml_caregiver_fe.png}
-\caption{DML partialled-out scatter (left) and treatment residual distribution
-(right). The negative slope ($\hat{\theta} = -0.172$, $p = 0.581$) is
-directionally consistent with the R findings but not significant at the global
-level.}
-\label{fig:dml}
+\includegraphics[width=0.80\textwidth]{../python/figures/dml_cvicu.png}
+\caption{DML partialled-out scatter (left) and FE rate residual distribution
+(right) for CVICU. $\hat{\theta} = +1.062$, $p = 0.197$. The wide confidence
+interval reflects both the small IQR of FE rate in CVICU (2.1 pp) and the
+limited residual variation in FE rate after GBM partialling.}
+\label{fig:dml_cvicu}
 \end{figure}
 
-\noindent In summary, the deep learning pipeline corroborates the R analysis:
-the direction of the FE rate effect is consistently negative, the global signal
-is null once confounders are removed, and the dominant predictors of survival
-are patient severity and ICU unit rather than caregiver practice.
+\noindent \textbf{Treatment R$^2$ interpretation.} The GBM treatment model
+achieves R$^2 \approx 0.53$--$0.69$ for the unit-stratified models and
+R$^2 \approx 0.52$--$0.60$ globally, substantially higher than the
+linear OLS denominator R$^2 = 0.057$ from the R MSM. The GBM is capturing
+nonlinear or interaction-based patterns in FE rate that OLS misses. The most
+likely explanation is caregiver-level clustering: patients of the same
+caregiver share the same FE rate, and patient profiles are weakly correlated
+with caregiver identity in ways a GBM can exploit. Despite this higher
+treatment predictability, all $\hat{\theta}$ estimates are null --- confirming
+that even the additional variation the GBM explains does not translate to a
+causal FE rate effect on mortality.
+
+\noindent All three groups are null. CVICU is directionally positive
+($\hat{\theta} = +1.062$, IQR effect +2.3 pp, $p = 0.197$), consistent
+with the MSM and the caregiver-level partial correlation. Over the CVICU
+FE rate IQR of 2.1 pp, the implied mortality difference is just 2.3 pp ---
+small and well within the confidence interval. Medical and Surgical/Trauma
+are directionally negative but also null ($p = 0.46$, $0.35$). The wide
+confidence intervals in all groups reflect the limited residual FE rate
+variation after the GBM has removed patient-level confounding (treatment
+$R^2 \approx 0.53$--$0.69$), confirming that the causal signal, if it
+exists, is smaller than what these data can resolve.
 
 
 \section{Trajectory Analysis}
+\label{sec:trajectory}
 
 Andrew's proposed dynamic risk framework requires that reintubation risk
 be estimable as a function of time on the ventilator, so that the optimal
@@ -658,24 +881,42 @@ risk hypothesis and is feasible with existing data.
 \begin{enumerate}[leftmargin=*]
 
 \item \textbf{Caregiver attribution.} \texttt{caregiver\_id} records the
-documenting user. This likely attenuates the signal --- a noisy proxy for the
-performing provider would dilute a real caregiver effect.
+documenting user, not necessarily the provider who performed the extubation.
+This introduces measurement error in the exposure variable that would tend to
+attenuate any real signal toward the null.
+
+\item \textbf{Case mix confounding within CVICU.} The volume confounding
+analysis demonstrates that 0\%-FE-rate caregivers systematically see shorter,
+simpler cases. Even with \texttt{caregiver\_unit\_n} $\geq 20$, residual case mix
+differences that are not captured by the measured covariates may explain the
+partial correlation ($r = +0.261$) seen at the caregiver level. The null
+causal estimates across methods (MSM OR = 1.432, $p = 0.102$; DML
+$\hat{\theta} = +1.062$, $p = 0.197$) are the strongest evidence that this
+association does not reflect a causal effect once patient-level confounders
+are removed.
 
 \item \textbf{Single center.} MIMIC-IV is from Beth Israel Deaconess Medical
-Center. An eICU parallel analysis (208 ICUs, with caregiver type information)
-is planned to assess generalizability.
+Center. An eICU parallel analysis (208 ICUs, with possible caregiver type
+information) is planned to assess generalizability.
 
-\item \textbf{Unmeasured confounding.} PSM controls only for measured
-covariates. Shift patterns, time of day, attending supervision, and respiratory
-therapist involvement are not captured in MIMIC-IV.
+\item \textbf{Caregiver type unknown.} Whether \texttt{caregiver\_id}
+corresponds to an attending physician, APP, or trainee is not directly
+available in MIMIC-IV. Andrew asks whether this information exists; it may
+be recoverable via the \texttt{caregivers} table, which requires a targeted
+BigQuery query.
+
+\item \textbf{Terminal extubation misclassification.} The 3-day mortality
+criterion captures some patients extubated with survival intent who
+deteriorated unexpectedly. A code status change marker would be more specific
+(planned; see Section~\ref{sec:terminal}).
 
 \item \textbf{All-cause 12-month mortality.} Deaths unrelated to the index
-extubation are counted. Shorter-term outcomes (hospital mortality, 30-day)
-are included as secondary endpoints.
+extubation are counted. Shorter-term outcomes (hospital and 30-day mortality)
+are consistent in direction with the 12-month endpoint.
 
 \item \textbf{Missed extubation opportunities.} Patients extubated too late
 cannot be identified in retrospective data without knowing the counterfactual.
-This is the motivation for the dynamic risk analysis (Andrew's Analysis 2).
+This is the motivation for the dynamic risk analysis (Section~\ref{sec:trajectory}).
 
 \end{enumerate}
 
@@ -683,10 +924,23 @@ This is the motivation for the dynamic risk analysis (Andrew's Analysis 2).
 \section{Proposed Next Steps}
 
 \begin{enumerate}[leftmargin=*]
-\item Begin eICU exploratory analysis (208 ICUs, caregiver type information)
-\item Agree on citation manager (Zotero?)
-\item DML stratified by unit group (to isolate CVICU causal estimate)
-\item SBT outcomes analysis (see Section~\ref{sec:comfort} TODO)
+
+\item \textbf{Code status query (BigQuery).} Pull DNR/DNI orders from
+MIMIC-IV \texttt{chartevents} and identify code status changes in the 24--48h
+before extubation. This provides a more specific terminal extubation marker
+than the 3-day mortality proxy.
+
+\item \textbf{CONSORT diagram.} Cohort flow figure (script 09\_consort.R)
+for the paper.
+
+\item \textbf{SBT outcomes analysis.} Spontaneous breathing trial pass/fail
+documented in MIMIC-IV chartevents (see Section~\ref{sec:trajectory}).
+
+\item \textbf{eICU exploratory analysis.} 208 ICUs, potential caregiver type
+information, external validation of CVICU partial correlation finding.
+
+\item \textbf{Citation manager.} Zotero recommended.
+
 \end{enumerate}
 
 \end{document}

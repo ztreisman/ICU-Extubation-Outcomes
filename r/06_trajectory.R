@@ -1,6 +1,6 @@
 ################################################################################
 ##
-##  ICU Extubation Outcomes — Script 04: Trajectory Analysis
+##  ICU Extubation Outcomes — Script 06: Trajectory Analysis
 ##
 ##  Depends on: bigrquery package and Google Cloud authentication
 ##              all_extubations table saved in BigQuery

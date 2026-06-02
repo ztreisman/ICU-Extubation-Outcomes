@@ -5,17 +5,12 @@
 .Rproj.user/
 *.Rproj
 
-# MIMIC-derived data (cannot be shared)
-data/last_extubations*.csv
-data/all_extubations.csv
-data/patient_ccsr_long.csv
-data/psm_matched_dataset.csv
-data/psm_results_summary.csv
-data/tube_events.csv
-data/patient_timelines.csv
-data/cohorts.RData
-data/mixed_effects_models.RData
-data/psm_results.RData
+
+# Ignore all data files except synthetic
+data/*
+!data/synthetic_last_extubations.csv
+!data/synthetic_caregiver_rate.csv
+!data/analysis_outputs.json
 
 # Tableau files with embedded data
 *.twbx
@@ -39,6 +34,7 @@ python/models/
 
 # Claude Code memory
 claude/
+.claude/
 
 # OS artifacts
 .DS_Store
